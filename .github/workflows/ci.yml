@@ -1,0 +1,70 @@
+name: UBERON Agent CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.9, 3.10, 3.11]
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install Rye
+      run: |
+        curl -sSf https://rye-up.com/get | bash
+        echo "$HOME/.rye/shims" >> $GITHUB_PATH
+    
+    - name: Install dependencies
+      run: |
+        rye sync
+    
+    - name: Lint with Ruff
+      run: |
+        rye run python -m ruff .
+    
+    - name: Test with pytest
+      run: |
+        rye run python -m pytest
+      env:
+        # Use dummy API key for tests (mocks will be used)
+        ANTHROPIC_API_KEY: dummy_key_for_testing
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.9
+    
+    - name: Install Rye
+      run: |
+        curl -sSf https://rye-up.com/get | bash
+        echo "$HOME/.rye/shims" >> $GITHUB_PATH
+    
+    - name: Build package
+      run: |
+        rye build
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: package
+        path: dist/ 
