@@ -7,10 +7,10 @@ variables with type validation.
 
 import os
 import sys
-from typing import Optional
+from typing import Optional, Dict, Any
 from pathlib import Path
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, HttpUrl
 
 # Load environment variables from .env file if it exists
 env_path = Path('.') / '.env'
@@ -18,6 +18,34 @@ load_dotenv(dotenv_path=env_path)
 
 # Determine if we're in development mode
 DEV_MODE = os.environ.get('ONTOGENT_DEV_MODE', 'false').lower() in ('true', '1', 't')
+
+class UberonApiSettings(BaseModel):
+    """Settings specific to the UBERON API."""
+    
+    BASE_URL: str = Field(
+        os.environ.get('UBERON_API_BASE_URL', "http://www.ontobee.org/api"), 
+        description="Base URL for the UBERON ontology API"
+    )
+    SEARCH_ENDPOINT: str = Field(
+        os.environ.get('UBERON_API_SEARCH_ENDPOINT', "/search"),
+        description="Endpoint for searching UBERON terms"
+    )
+    TERM_ENDPOINT: str = Field(
+        os.environ.get('UBERON_API_TERM_ENDPOINT', "/term"),
+        description="Endpoint for retrieving specific UBERON terms"
+    )
+    TIMEOUT: int = Field(
+        int(os.environ.get('UBERON_API_TIMEOUT', "30")),
+        description="Timeout in seconds for API requests"
+    )
+    MAX_RETRIES: int = Field(
+        int(os.environ.get('UBERON_API_MAX_RETRIES', "3")),
+        description="Maximum number of retries for failed requests"
+    )
+    PARAMS: Dict[str, Any] = Field(
+        {"ontology": "UBERON"},
+        description="Default parameters to include in all requests"
+    )
 
 class Settings(BaseModel):
     """Application settings loaded from environment variables."""
@@ -29,14 +57,23 @@ class Settings(BaseModel):
     )
     
     # LLM Configuration
-    MODEL_NAME: str = Field("claude-3-5-sonnet-20240620", description="Claude model version to use")
-    MAX_TOKENS: int = Field(4000, description="Maximum number of tokens for LLM responses")
-    TEMPERATURE: float = Field(0.1, description="Temperature for LLM generation (0.0-1.0)")
+    MODEL_NAME: str = Field(
+        os.environ.get('LLM_MODEL_NAME', "claude-3-5-sonnet-20240620"), 
+        description="Claude model version to use"
+    )
+    MAX_TOKENS: int = Field(
+        int(os.environ.get('LLM_MAX_TOKENS', "4000")), 
+        description="Maximum number of tokens for LLM responses"
+    )
+    TEMPERATURE: float = Field(
+        float(os.environ.get('LLM_TEMPERATURE', "0.1")), 
+        description="Temperature for LLM generation (0.0-1.0)"
+    )
     
     # UBERON API Configuration
-    UBERON_API_URL: str = Field(
-        "http://www.ontobee.org/api/search", 
-        description="URL for the UBERON ontology API"
+    UBERON_API: UberonApiSettings = Field(
+        default_factory=UberonApiSettings,
+        description="UBERON API configuration"
     )
     
     # Development mode

@@ -58,6 +58,42 @@ UBERON (Uber-anatomy ontology) is a comprehensive cross-species anatomy ontology
    export ANTHROPIC_API_KEY="your_api_key_here"
    ```
 
+### Configure Environment Variables
+
+The application supports configuration through environment variables or a `.env` file in the project root. 
+
+Create a `.env` file with the following settings:
+
+```
+# API Keys
+ANTHROPIC_API_KEY=your_api_key_here
+
+# Development Mode (set to true to use mock data, false for production)
+ONTOGENT_DEV_MODE=false
+
+# LLM Configuration (optional - these have defaults)
+LLM_MODEL_NAME=claude-3-5-sonnet-20240620
+LLM_MAX_TOKENS=4000
+LLM_TEMPERATURE=0.1
+
+# UBERON API Configuration (optional - these have defaults)
+UBERON_API_BASE_URL=http://www.ontobee.org/api
+UBERON_API_SEARCH_ENDPOINT=/search
+UBERON_API_TERM_ENDPOINT=/term
+UBERON_API_TIMEOUT=30
+UBERON_API_MAX_RETRIES=3
+```
+
+#### Development Mode
+
+For development without an Anthropic API key, set:
+
+```
+ONTOGENT_DEV_MODE=true
+```
+
+This will use mock responses for both LLM and UBERON services.
+
 ## Usage
 
 ```python
@@ -69,6 +105,21 @@ agent = UberonAgent()
 # Query for a UBERON term
 result = agent.find_term("liver tissue from a mouse embryo")
 print(result)
+```
+
+### Command Line Interface
+
+The application can also be used from the command line:
+
+```bash
+# Interactive mode
+python src/main.py
+
+# Single query mode
+python src/main.py "heart tissue"
+
+# With logging options
+python src/main.py --log-level DEBUG --log-file ontogent.log "liver"
 ```
 
 ## Development Guide
@@ -87,6 +138,20 @@ ontogent/
 ├── pyproject.toml   # Project configuration
 └── README.md        # Project documentation
 ```
+
+### UBERON API Integration
+
+The application connects to the UBERON ontology through its API. The default configuration points to the public Ontobee API endpoint, but you can customize it through environment variables.
+
+For custom API integration, implement the following in `.env` file:
+
+```
+UBERON_API_BASE_URL=your_custom_api_url
+UBERON_API_SEARCH_ENDPOINT=your_custom_search_endpoint
+UBERON_API_TERM_ENDPOINT=your_custom_term_endpoint
+```
+
+For alternative API endpoints, you may need to update the parsing logic in `src/services/uberon.py` to match your API's response format.
 
 ### Running Tests
 
