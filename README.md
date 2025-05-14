@@ -131,6 +131,7 @@ ontogent/
 ├── src/
 │   ├── models/      # Data models using Pydantic
 │   ├── services/    # Core services (LLM, UBERON)
+│   ├── tools/       # Utility tools and scripts
 │   ├── utils/       # Helper functions
 │   └── config.py    # Configuration management
 ├── tests/           # Unit tests
@@ -152,6 +153,66 @@ UBERON_API_TERM_ENDPOINT=your_custom_term_endpoint
 ```
 
 For alternative API endpoints, you may need to update the parsing logic in `src/services/uberon.py` to match your API's response format.
+
+### API Troubleshooting
+
+The Ontobee API occasionally experiences connectivity or response format issues. The application includes tools to help diagnose and resolve these problems:
+
+#### Checking API Status
+
+Use the included API check tool to verify the Ontobee API is accessible and functioning correctly:
+
+```bash
+# Run the API check tool
+./src/tools/check_api.sh
+
+# For JSON output
+./src/tools/check_api.sh --format json
+
+# With custom timeout (in seconds)
+./src/tools/check_api.sh --timeout 15
+```
+
+This tool will:
+1. Verify API endpoints are accessible
+2. Check if responses are valid JSON
+3. Validate response structure
+4. Provide recommendations for configuration
+
+If the API is not accessible or returning invalid responses, the tool will suggest using development mode.
+
+#### Using Development Mode
+
+When the Ontobee API is unavailable, you can use development mode, which provides mock data for common anatomical terms:
+
+```
+ONTOGENT_DEV_MODE=true
+```
+
+In development mode, the application will:
+- Use mock UBERON data for common terms (heart, liver, brain, lung, kidney, blood, bone)
+- Log that it's using mock data
+- Still use the real LLM API (unless ANTHROPIC_API_KEY is not set)
+
+#### Switching Between Mock and Real API
+
+The application has automatic fallback to development mode if the API is not accessible. You can also force it to always try the real API first by setting:
+
+```
+ONTOGENT_DEV_MODE=false
+```
+
+This setting will attempt to connect to the real API, but will gracefully fall back to mock data if the API is unavailable or not responding correctly.
+
+#### API Response Debugging
+
+For detailed debugging of API responses, enable DEBUG-level logging:
+
+```bash
+python src/main.py --log-level DEBUG --log-file ontogent_debug.log "heart"
+```
+
+This will log the full API request and response details, which can be helpful when diagnosing API integration issues.
 
 ### Running Tests
 
