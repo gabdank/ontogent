@@ -51,17 +51,62 @@ class UberonAgent:
             # Step 1: Analyze the user query with the LLM
             analysis = self.llm_service.analyze_uberon_query(user_query)
             
+            # DEBUG: Print the raw LLM response
+            if isinstance(analysis, dict) and "raw_response" in analysis:
+                raw_response = analysis["raw_response"]
+                logger.debug(f"Raw LLM response: {raw_response}")
+                print(f"DEBUG - Raw LLM response: {raw_response[:200]}..." if len(raw_response) > 200 else raw_response)
+            else:
+                logger.debug(f"Unexpected analysis format: {analysis}")
+                print(f"DEBUG - Unexpected analysis format: {analysis}")
+            
             # Step 2: Extract a recommended search query from the LLM analysis
             search_query = user_query
             
             try:
                 if isinstance(analysis, dict) and "raw_response" in analysis:
-                    analysis_json = json.loads(analysis["raw_response"])
-                    if "recommended_search_query" in analysis_json:
-                        search_query = analysis_json["recommended_search_query"]
-                        logger.info(f"Using LLM-recommended search query: {search_query}")
+                    # Check if the response is valid JSON
+                    raw_response = analysis["raw_response"]
+                    
+                    # Try to clean the response if it's not valid JSON
+                    if raw_response:
+                        # Look for starting and ending braces of JSON
+                        start_idx = raw_response.find('{')
+                        end_idx = raw_response.rfind('}')
+                        
+                        if start_idx >= 0 and end_idx > start_idx:
+                            # Extract what appears to be JSON
+                            json_part = raw_response[start_idx:end_idx+1]
+                            logger.debug(f"Attempting to parse JSON part: {json_part}")
+                            print(f"DEBUG - Attempting to parse JSON part: {json_part[:200]}..." if len(json_part) > 200 else json_part)
+                            
+                            try:
+                                analysis_json = json.loads(json_part)
+                                logger.debug(f"Successfully parsed JSON from part of response: {analysis_json}")
+                                print(f"DEBUG - Successfully parsed JSON from part of response")
+                                if "recommended_search_query" in analysis_json:
+                                    search_query = analysis_json["recommended_search_query"]
+                                    logger.info(f"Using LLM-recommended search query: {search_query}")
+                            except json.JSONDecodeError as e:
+                                logger.warning(f"Failed to parse extracted JSON part: {e}")
+                                print(f"DEBUG - Failed to parse extracted JSON part: {e}")
+                        else:
+                            # Try the original response in case there are no clear JSON indicators
+                            try:
+                                analysis_json = json.loads(raw_response)
+                                logger.debug(f"Successfully parsed JSON from full response")
+                                if "recommended_search_query" in analysis_json:
+                                    search_query = analysis_json["recommended_search_query"]
+                                    logger.info(f"Using LLM-recommended search query: {search_query}")
+                            except json.JSONDecodeError as e:
+                                logger.warning(f"Could not parse LLM analysis, using original query: {e}")
+                                print(f"DEBUG - Could not parse LLM analysis, using original query: {e}")
+                    else:
+                        logger.warning("Empty response from LLM")
+                        print("DEBUG - Empty response from LLM")
             except Exception as e:
-                logger.warning(f"Could not parse LLM analysis, using original query: {e}")
+                logger.warning(f"Error processing LLM analysis, using original query: {e}")
+                print(f"DEBUG - Error processing LLM analysis: {e}")
             
             # Create the search query object with possibly refined query string
             query_obj = SearchQuery(query=search_query)
@@ -201,10 +246,29 @@ class UberonAgent:
             response = self.llm_service.query(prompt, system_prompt)
             logger.debug(f"Received LLM response: {response[:100]}...")
             
+            # DEBUG: Print the raw ranking response
+            print(f"DEBUG - Raw ranking response: {response[:200]}..." if len(response) > 200 else response)
+            
             try:
                 # Try to parse the JSON response
-                result = json.loads(response)
-                logger.debug(f"Parsed LLM response: {result}")
+                try:
+                    result = json.loads(response)
+                    logger.debug(f"Parsed LLM response: {result}")
+                except json.JSONDecodeError:
+                    # Try to extract JSON if response contains other text
+                    start_idx = response.find('{')
+                    end_idx = response.rfind('}')
+                    
+                    if start_idx >= 0 and end_idx > start_idx:
+                        json_part = response[start_idx:end_idx+1]
+                        logger.debug(f"Attempting to parse JSON part: {json_part}")
+                        print(f"DEBUG - Attempting to parse JSON part from ranking: {json_part[:200]}..." if len(json_part) > 200 else json_part)
+                        result = json.loads(json_part)
+                        logger.debug(f"Successfully parsed JSON from part of ranking response: {result}")
+                    else:
+                        logger.warning("Could not extract JSON from ranking response")
+                        print(f"DEBUG - Could not extract JSON from ranking response")
+                        raise
                 
                 # Find the term with the matching ID
                 best_match_id = result.get("best_match_id")
@@ -246,6 +310,7 @@ class UberonAgent:
                 
             except (json.JSONDecodeError, AttributeError, KeyError) as e:
                 logger.warning(f"Could not parse LLM ranking response: {e}")
+                print(f"DEBUG - Could not parse LLM ranking response: {e}")
                 # Fallback to using the first term
                 logger.debug(f"Using first term as fallback: {terms[0].id} - {terms[0].label}")
                 return {
@@ -256,4 +321,5 @@ class UberonAgent:
             
         except Exception as e:
             logger.error(f"Error ranking UBERON terms: {e}")
+            print(f"DEBUG - Error ranking UBERON terms: {e}")
             return None 

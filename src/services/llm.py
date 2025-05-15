@@ -48,10 +48,18 @@ class LLMService:
         """
         try:
             logger.debug(f"Querying LLM with prompt: {prompt[:100]}...")
+            print(f"DEBUG - Sending prompt to LLM: {prompt[:100]}...")
+            
+            if system_prompt:
+                print(f"DEBUG - Using system prompt: {system_prompt[:100]}...")
             
             messages: List[MessageParam] = [
                 {"role": "user", "content": prompt}
             ]
+            
+            # Debug API key (showing only first few characters)
+            api_key_prefix = settings.ANTHROPIC_API_KEY[:5] if settings.ANTHROPIC_API_KEY else "None"
+            print(f"DEBUG - Using API key starting with: {api_key_prefix}...")
             
             response = self.client.messages.create(
                 model=self.model,
@@ -61,10 +69,13 @@ class LLMService:
                 messages=messages,
             )
             
-            return response.content[0].text
+            result_text = response.content[0].text
+            print(f"DEBUG - Received LLM response ({len(result_text)} chars): {result_text[:100]}...")
+            return result_text
         
         except Exception as e:
             logger.error(f"Error querying LLM: {e}")
+            print(f"DEBUG - Error querying LLM: {e}")
             raise
     
     def analyze_uberon_query(self, user_query: str, context: Optional[str] = None) -> Dict[str, Any]:
@@ -93,6 +104,8 @@ class LLMService:
         - possible_uberon_terms: List of potential UBERON terms that might match
         - recommended_search_query: A suggested search query to find the UBERON term
         - explanation: Brief explanation of your reasoning
+        
+        IMPORTANT: Your complete response must be valid parseable JSON. Do not include any text before or after the JSON object.
         """
         
         prompt = f"Please analyze this query about an anatomical structure: {user_query}"
@@ -100,8 +113,20 @@ class LLMService:
             prompt += f"\n\nAdditional context: {context}"
         
         try:
+            print(f"DEBUG - Analyzing query: '{user_query}'")
             response = self.query(prompt, system_prompt)
-            return {"raw_response": response}
+            
+            # Try to validate if the response is JSON
+            try:
+                parsed_json = json.loads(response)
+                print(f"DEBUG - Successfully parsed response as JSON: {list(parsed_json.keys())}")
+                return {"raw_response": response}
+            except json.JSONDecodeError as e:
+                print(f"DEBUG - Response is not valid JSON: {e}")
+                print(f"DEBUG - Raw response: {response}")
+                return {"raw_response": response}
+                
         except Exception as e:
             logger.error(f"Error analyzing UBERON query: {e}")
+            print(f"DEBUG - Error analyzing UBERON query: {e}")
             raise 
