@@ -23,15 +23,15 @@ class UberonApiSettings(BaseModel):
     """Settings specific to the UBERON API."""
     
     BASE_URL: str = Field(
-        os.environ.get('UBERON_API_BASE_URL', "http://www.ontobee.org/api"), 
-        description="Base URL for the UBERON ontology API"
+        os.environ.get('UBERON_API_BASE_URL', "https://www.ebi.ac.uk/ols4/api"), 
+        description="Base URL for the UBERON ontology API (EBI OLS4)"
     )
     SEARCH_ENDPOINT: str = Field(
         os.environ.get('UBERON_API_SEARCH_ENDPOINT', "/search"),
         description="Endpoint for searching UBERON terms"
     )
     TERM_ENDPOINT: str = Field(
-        os.environ.get('UBERON_API_TERM_ENDPOINT', "/term"),
+        os.environ.get('UBERON_API_TERM_ENDPOINT', "/terms"),
         description="Endpoint for retrieving specific UBERON terms"
     )
     TIMEOUT: int = Field(
@@ -43,7 +43,7 @@ class UberonApiSettings(BaseModel):
         description="Maximum number of retries for failed requests"
     )
     PARAMS: Dict[str, Any] = Field(
-        {"ontology": "UBERON"},
+        {"ontology": "uberon"},
         description="Default parameters to include in all requests"
     )
 

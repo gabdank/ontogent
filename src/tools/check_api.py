@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Utility script to check the Ontobee API status.
+Utility script to check the EBI OLS4 API status.
 
 This tool helps diagnose connectivity issues with the UBERON API.
 """
@@ -20,9 +20,9 @@ from src.utils.logging_utils import setup_logging
 
 def main():
     """
-    Check the Ontobee API health and report results.
+    Check the EBI OLS4 API health and report results.
     """
-    parser = argparse.ArgumentParser(description="Check the Ontobee API status")
+    parser = argparse.ArgumentParser(description="Check the EBI OLS4 API status")
     parser.add_argument(
         "--timeout",
         type=int,
@@ -40,15 +40,15 @@ def main():
     # Set up logging
     logger = setup_logging()
     
-    print("Checking Ontobee API health...")
-    health_info = UberonService.check_ontobee_api_health(timeout=args.timeout)
+    print("Checking EBI OLS4 API health...")
+    health_info = UberonService.check_api_health(timeout=args.timeout)
     
     if args.format == "json":
         # Output JSON format
         print(json.dumps(health_info, indent=2))
     else:
         # Output human-readable text
-        print("\n=== Ontobee API Health Check ===")
+        print("\n=== EBI OLS4 API Health Check ===")
         print(f"Base URL: {health_info['base_url']}")
         print(f"Search endpoint: {health_info['search_endpoint']}")
         print(f"Term endpoint: {health_info['term_endpoint']}")
@@ -82,6 +82,133 @@ def main():
         
     # Return success if API is working, failure otherwise
     return 0 if not health_info["dev_mode_recommended"] else 1
+
+
+def check_ebi_ols4_api_health(timeout: int = 10) -> dict:
+    """
+    Check the health of the EBI OLS4 API.
+    
+    This function tests the connectivity and response structure of the EBI OLS4 API.
+    
+    Args:
+        timeout: Request timeout in seconds
+        
+    Returns:
+        Dictionary with API health information
+    """
+    import requests
+    import time
+    from src.config import settings
+    
+    api_config = settings.UBERON_API
+    
+    base_url = api_config.BASE_URL
+    search_endpoint = api_config.SEARCH_ENDPOINT
+    term_endpoint = api_config.TERM_ENDPOINT
+    
+    search_url = f"{base_url}{search_endpoint}"
+    term_url = f"{base_url}{term_endpoint}"
+    
+    health_info = {
+        "base_url": base_url,
+        "search_endpoint": search_endpoint,
+        "term_endpoint": term_endpoint,
+        "search_url_accessible": False,
+        "term_url_accessible": False,
+        "search_response_valid": False,
+        "term_response_valid": False,
+        "error": None,
+        "dev_mode_recommended": False,
+        "timestamp": time.time()
+    }
+    
+    session = requests.Session()
+    
+    try:
+        # Test search endpoint
+        params = {
+            "q": "heart",
+            "ontology": "uberon",
+            "rows": 1
+        }
+        
+        search_response = session.get(search_url, params=params, timeout=timeout)
+        health_info["search_url_accessible"] = search_response.status_code == 200
+        health_info["search_status_code"] = search_response.status_code
+        
+        if health_info["search_url_accessible"]:
+            # Check if response is valid JSON
+            try:
+                search_data = search_response.json()
+                health_info["search_json_valid"] = True
+                
+                # Check if response has expected structure
+                if "response" in search_data and "docs" in search_data["response"]:
+                    health_info["search_response_valid"] = True
+                else:
+                    health_info["search_response_keys"] = list(search_data.keys())
+            except Exception as e:
+                health_info["search_json_valid"] = False
+                health_info["search_parse_error"] = str(e)
+        
+        # Test term endpoint with a known term ID
+        term_request_url = f"{term_url}/UBERON_0000948"  # Heart ID
+        
+        term_response = session.get(term_request_url, timeout=timeout)
+        health_info["term_url_accessible"] = term_response.status_code == 200
+        health_info["term_status_code"] = term_response.status_code
+        
+        if health_info["term_url_accessible"]:
+            # Check if response is valid JSON
+            try:
+                term_data = term_response.json()
+                health_info["term_json_valid"] = True
+                
+                # Check if response has expected structure
+                # EBI OLS4 API returns a collection of terms with pagination
+                if "_links" in term_data and "page" in term_data:
+                    # This appears to be a paginated response of terms
+                    health_info["term_response_valid"] = True
+                    # Get a specific term - we need to use a different endpoint
+                    term_detail_url = f"{base_url}/ontologies/uberon/terms/http%3A%2F%2Fpurl.obolibrary.org%2Fobo%2FUBERON_0000948"
+                    try:
+                        term_detail_response = session.get(term_detail_url, timeout=timeout)
+                        if term_detail_response.status_code == 200:
+                            term_detail = term_detail_response.json()
+                            if "label" in term_detail and "iri" in term_detail:
+                                health_info["term_detail_valid"] = True
+                    except Exception:
+                        # Ignore errors in the second check
+                        pass
+                else:
+                    health_info["term_response_keys"] = list(term_data.keys())
+            except Exception as e:
+                health_info["term_json_valid"] = False
+                health_info["term_parse_error"] = str(e)
+        
+        # Check if dev mode is recommended
+        if not health_info["search_url_accessible"] or not health_info["term_url_accessible"]:
+            health_info["dev_mode_recommended"] = True
+            health_info["recommendation"] = "API endpoints are not accessible, recommend using dev mode"
+        elif not health_info["search_json_valid"] or not health_info["term_json_valid"]:
+            health_info["dev_mode_recommended"] = True
+            health_info["recommendation"] = "API responses are not valid JSON, recommend using dev mode"
+        elif not health_info["search_response_valid"]:
+            health_info["dev_mode_recommended"] = True
+            health_info["recommendation"] = "API search response doesn't have expected structure, recommend using dev mode"
+        else:
+            health_info["recommendation"] = "API appears to be working correctly"
+            
+    except requests.exceptions.RequestException as e:
+        health_info["error"] = f"Request error: {str(e)}"
+        health_info["dev_mode_recommended"] = True
+        health_info["recommendation"] = "Cannot connect to API, recommend using dev mode"
+    except Exception as e:
+        health_info["error"] = f"Unexpected error: {str(e)}"
+        health_info["dev_mode_recommended"] = True
+        health_info["recommendation"] = "Error checking API health, recommend using dev mode"
+    
+    return health_info
 
 
 if __name__ == "__main__":

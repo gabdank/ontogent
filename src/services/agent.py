@@ -53,11 +53,22 @@ class UberonAgent:
             
             # Step 2: Extract a recommended search query from the LLM analysis
             # In a real implementation, we would parse the JSON response from the LLM
-            # For now, we'll just use the original query
-            search_query = SearchQuery(query=user_query)
+            search_query = user_query
             
-            # Step 3: Search for UBERON terms
-            search_result = self.uberon_service.search(search_query)
+            try:
+                if isinstance(analysis, dict) and "raw_response" in analysis:
+                    analysis_json = json.loads(analysis["raw_response"])
+                    if "recommended_search_query" in analysis_json:
+                        search_query = analysis_json["recommended_search_query"]
+                        logger.info(f"Using LLM-recommended search query: {search_query}")
+            except Exception as e:
+                logger.warning(f"Could not parse LLM analysis, using original query: {e}")
+            
+            # Create the search query object with possibly refined query string
+            query_obj = SearchQuery(query=search_query)
+            
+            # Step 3: Search for UBERON terms using the EBI OLS4 API
+            search_result = self.uberon_service.search(query_obj)
             
             # Step 4: If we have multiple matches, ask the LLM to rank them
             if len(search_result.matches) > 1:
@@ -125,13 +136,35 @@ class UberonAgent:
             # Query the LLM
             response = self.llm_service.query(prompt, system_prompt)
             
-            # In a real implementation, we would parse the JSON response
-            # For now, return a mock result
-            return {
-                "term": terms[0],
-                "confidence": 0.9,
-                "reasoning": "This term most closely matches the anatomical structure described in the query."
-            }
+            try:
+                # Try to parse the JSON response
+                result = json.loads(response)
+                
+                # Find the term with the matching ID
+                for term in terms:
+                    if term.id == result.get("best_match_id"):
+                        return {
+                            "term": term,
+                            "confidence": result.get("confidence", 0.7),
+                            "reasoning": result.get("reasoning", "This term best matches the query according to semantic analysis.")
+                        }
+                
+                # If we can't find the exact ID, just use the first term
+                logger.warning(f"Could not find term with ID {result.get('best_match_id')}, using first term")
+                return {
+                    "term": terms[0],
+                    "confidence": result.get("confidence", 0.7),
+                    "reasoning": result.get("reasoning", "This term best matches the query according to semantic analysis.")
+                }
+                
+            except (json.JSONDecodeError, AttributeError, KeyError) as e:
+                logger.warning(f"Could not parse LLM ranking response: {e}")
+                # Fallback to using the first term
+                return {
+                    "term": terms[0],
+                    "confidence": 0.7,
+                    "reasoning": "This term appears to be the most relevant match based on the query."
+                }
             
         except Exception as e:
             logger.error(f"Error ranking UBERON terms: {e}")

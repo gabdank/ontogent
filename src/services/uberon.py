@@ -1,8 +1,8 @@
 """
 UBERON service for interacting with the UBERON ontology.
 
-This module handles fetching data from UBERON ontology sources and converting
-the raw data into structured UberonTerm objects.
+This module handles fetching data from UBERON ontology sources using the EBI OLS4 API
+and converting the raw data into structured UberonTerm objects.
 """
 
 # NOTE: This file has been modified to handle UBERON API connectivity issues.
@@ -15,6 +15,7 @@ from typing import List, Dict, Any, Optional
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import urllib.parse
 
 from src.config import settings
 from src.models.uberon import UberonTerm, SearchQuery, SearchResult
@@ -28,11 +29,11 @@ log_with_context = log_exceptions(logger)
 
 
 class UberonService:
-    """Service for interacting with the UBERON ontology."""
+    """Service for interacting with the UBERON ontology via EBI OLS4 API."""
     
     def __init__(self):
         """Initialize the UBERON service with configured retry policy."""
-        # Force dev mode to true temporarily until API issues are resolved
+        # Use the dev_mode setting from configuration
         self.dev_mode = settings.DEV_MODE
         
         self.api_config = settings.UBERON_API
@@ -41,7 +42,7 @@ class UberonService:
         self.search_url = f"{self.api_config.BASE_URL}{self.api_config.SEARCH_ENDPOINT}"
         self.term_url = f"{self.api_config.BASE_URL}{self.api_config.TERM_ENDPOINT}"
         
-        logger.info(f"UBERON service initialized with API URL: {self.search_url}")
+        logger.info(f"UBERON service initialized with API URL: {self.api_config.BASE_URL}")
         
         # Set up session with retry policy if not in dev mode
         if not self.dev_mode:
@@ -80,7 +81,7 @@ class UberonService:
     
     def test_api_connection(self) -> bool:
         """
-        Test the connection to the UBERON API.
+        Test the connection to the EBI OLS4 API.
         
         Attempts to make a simple request to verify the API is accessible.
         
@@ -88,12 +89,15 @@ class UberonService:
             True if the API is accessible, False otherwise
         """
         try:
-            logger.info("Testing connection to UBERON API")
+            logger.info("Testing connection to EBI OLS4 API")
             
             # Try to search for a common term like "heart" as a connection test
             test_url = self.search_url
-            params = self.api_config.PARAMS.copy()
-            params.update({"q": "heart", "max_results": 1})
+            params = {
+                "q": "heart",
+                "ontology": "uberon",
+                "rows": 1
+            }
             
             response = self.session.get(
                 test_url,
@@ -104,27 +108,27 @@ class UberonService:
             # Check if response is successful and contains expected data
             if response.status_code == 200:
                 data = response.json()
-                if "results" in data:
-                    logger.info("UBERON API connection successful")
+                if "response" in data and "docs" in data["response"]:
+                    logger.info("EBI OLS4 API connection successful")
                     return True
                 else:
-                    logger.warning("UBERON API responded with 200 but unexpected data format")
+                    logger.warning("EBI OLS4 API responded with 200 but unexpected data format")
                     return False
             else:
-                logger.warning(f"UBERON API responded with status code {response.status_code}")
+                logger.warning(f"EBI OLS4 API responded with status code {response.status_code}")
                 return False
                 
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error connecting to UBERON API: {e}")
+            logger.error(f"Error connecting to EBI OLS4 API: {e}")
             return False
         except Exception as e:
-            logger.error(f"Unexpected error testing UBERON API connection: {e}")
+            logger.error(f"Unexpected error testing EBI OLS4 API connection: {e}")
             return False
     
     @log_with_context
     def search(self, query: SearchQuery) -> SearchResult:
         """
-        Search for UBERON terms matching the query.
+        Search for UBERON terms matching the query using the EBI OLS4 API.
         
         Args:
             query: SearchQuery object containing search parameters
@@ -133,7 +137,7 @@ class UberonService:
             SearchResult object containing matching terms
         """
         try:
-            logger.info(f"Searching UBERON for: {query.query}")
+            logger.info(f"Searching UBERON for: {query.query} (dev_mode: {self.dev_mode})")
             
             # Use mock data in development mode
             if self.dev_mode:
@@ -152,50 +156,62 @@ class UberonService:
                 return result
             
             # Make the actual API call in production mode
-            params = self.api_config.PARAMS.copy()
-            params.update({
+            params = {
                 "q": query.query,
-                "max_results": query.max_results
-            })
+                "ontology": "uberon",
+                "rows": query.max_results,
+                "queryFields": "label,synonym,description",
+                "exact": "false"
+            }
             
-            logger.debug(f"Sending UBERON API request to {self.search_url} with params: {params}")
+            logger.debug(f"Sending EBI OLS4 API request to {self.search_url} with params: {params}")
             
-            response = self.session.get(
-                self.search_url,
-                params=params,
-                timeout=self.api_config.TIMEOUT
-            )
-            response.raise_for_status()
-            
-            # Parse the response
-            data = response.json()
-            logger.debug(f"Received UBERON API response with status code {response.status_code}")
-            
-            # Convert API response to UberonTerm objects
-            terms = self._parse_search_results(data)
-            
-            result = SearchResult(
-                query=query.query,
-                matches=terms,
-                total_matches=len(terms),
-                best_match=terms[0] if terms else None,
-                confidence=0.9 if terms else None,
-                reasoning="Based on API search results"
-            )
-            
-            return result
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error in UBERON API request: {e}")
-            return SearchResult(query=query.query)
+            try:
+                response = self.session.get(
+                    self.search_url,
+                    params=params,
+                    timeout=self.api_config.TIMEOUT
+                )
+                response.raise_for_status()
+                
+                # Parse the response
+                data = response.json()
+                logger.debug(f"Received EBI OLS4 API response with status code {response.status_code}")
+                logger.debug(f"Response structure: {list(data.keys())}")
+                
+                if "response" in data:
+                    logger.debug(f"Found {data['response'].get('numFound', 0)} results in response")
+                    if "docs" in data["response"]:
+                        logger.debug(f"First 3 docs: {data['response']['docs'][:3]}")
+                
+                # Convert API response to UberonTerm objects
+                terms = self._parse_search_results(data)
+                logger.debug(f"Parsed {len(terms)} terms from the API response")
+                
+                result = SearchResult(
+                    query=query.query,
+                    matches=terms,
+                    total_matches=len(terms) if terms else 0,
+                    best_match=terms[0] if terms else None,
+                    confidence=0.9 if terms else None,
+                    reasoning="Based on EBI OLS4 API search results"
+                )
+                
+                return result
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Error in EBI OLS4 API request: {e}")
+                return SearchResult(query=query.query)
+                
         except Exception as e:
-            logger.error(f"Error searching UBERON: {e}")
+            logger.error(f"Error searching UBERON via EBI OLS4 API: {e}")
+            import traceback
+            logger.debug(f"Exception traceback: {traceback.format_exc()}")
             return SearchResult(query=query.query)
     
     @log_with_context
     def get_term_by_id(self, term_id: str) -> Optional[UberonTerm]:
         """
-        Get a specific UBERON term by ID.
+        Get a specific UBERON term by ID using the EBI OLS4 API.
         
         Args:
             term_id: UBERON ID (e.g., 'UBERON:0000948')
@@ -238,15 +254,24 @@ class UberonService:
                     )
                 return None
             
-            # Make the actual API call in production mode
-            params = self.api_config.PARAMS.copy()
-            params.update({
-                "id": term_id
-            })
+            # Format term ID for the EBI OLS4 API
+            if ":" in term_id:
+                formatted_id = term_id.replace(":", "_")
+            else:
+                formatted_id = term_id
             
+            # Construct the IRI for the term (required by EBI OLS4 API)
+            term_iri = f"http://purl.obolibrary.org/obo/{formatted_id}"
+            # URL encode the IRI 
+            encoded_iri = urllib.parse.quote(term_iri)
+            
+            # Make the API call in production mode
+            # In EBI OLS4, the correct URL format is /api/ontologies/uberon/terms/{encoded_iri}
+            term_request_url = f"{self.api_config.BASE_URL}/ontologies/uberon/terms/{encoded_iri}"
+            
+            logger.debug(f"Requesting term details from: {term_request_url}")
             response = self.session.get(
-                self.term_url,
-                params=params,
+                term_request_url,
                 timeout=self.api_config.TIMEOUT
             )
             response.raise_for_status()
@@ -258,7 +283,7 @@ class UberonService:
             return self._parse_term_result(data)
             
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error in UBERON API request: {e}")
+            logger.error(f"Error in EBI OLS4 API request: {e}")
             return None
         except Exception as e:
             logger.error(f"Error getting UBERON term by ID: {e}")
@@ -266,7 +291,7 @@ class UberonService:
     
     def _parse_search_results(self, data: Dict[str, Any]) -> List[UberonTerm]:
         """
-        Parse search results from the UBERON API.
+        Parse search results from the EBI OLS4 API.
         
         Args:
             data: JSON response from the API
@@ -277,43 +302,93 @@ class UberonService:
         terms = []
         
         try:
-            # Check for common response formats from Ontobee API
-            if "results" in data:
-                # Standard expected format
-                results = data["results"]
-                logger.debug(f"Found {len(results)} results from UBERON API")
+            # EBI OLS4 API uses Solr-style response format
+            if "response" in data and "docs" in data["response"]:
+                results = data["response"]["docs"]
+                logger.debug(f"Found {len(results)} results from EBI OLS4 API")
                 
-                for result in results:
+                for i, result in enumerate(results):
                     try:
-                        # Extract ID, ensuring it contains the UBERON prefix
-                        term_id = result.get("id", "")
-                        if not term_id.startswith("UBERON:"):
-                            term_id = f"UBERON:{term_id}" if term_id else ""
+                        logger.debug(f"Processing result {i+1}/{len(results)}: {result.get('id', '(no id)')} - {result.get('label', '(no label)')}")
                         
-                        # Extract other fields with sensible defaults
+                        # Extract ID and ensure it's properly formatted
+                        term_id = result.get("curie", result.get("id", ""))
+                        logger.debug(f"Initial term_id from API: {term_id}")
+                        
+                        # Handle cases where obo_id might be different
+                        if "obo_id" in result:
+                            term_id = result["obo_id"]
+                            logger.debug(f"Using obo_id instead: {term_id}")
+                            
+                        # Handle short_form which is used in EBI OLS4
+                        if not term_id and "short_form" in result:
+                            short_form = result["short_form"]
+                            if short_form.startswith("UBERON_"):
+                                term_id = short_form.replace("_", ":", 1)
+                                logger.debug(f"Using short_form to create term_id: {term_id}")
+                                
+                        # Try to extract from IRI as last resort
+                        if not term_id and "iri" in result:
+                            iri = result["iri"]
+                            if "UBERON_" in iri:
+                                term_id = "UBERON:" + iri.split("UBERON_")[1]
+                                logger.debug(f"Extracted term_id from IRI: {term_id}")
+                        
+                        if term_id and not term_id.startswith("UBERON:"):
+                            # Handle differently formatted IDs
+                            if term_id.startswith("UBERON_"):
+                                term_id = term_id.replace("_", ":", 1)
+                                logger.debug(f"Reformatted UBERON_ id to: {term_id}")
+                            elif ":" not in term_id and term_id.isdigit():
+                                term_id = f"UBERON:{term_id}"
+                                logger.debug(f"Added UBERON prefix to numeric id: {term_id}")
+                        
+                        # Extract label
                         label = result.get("label", "")
-                        definition = result.get("definition", "")
                         
-                        # Handle synonyms which might be a string, list, or missing
-                        synonyms_data = result.get("synonyms", [])
-                        if isinstance(synonyms_data, str):
-                            synonyms = [s.strip() for s in synonyms_data.split(",")]
-                        elif isinstance(synonyms_data, list):
-                            synonyms = synonyms_data
-                        else:
-                            synonyms = []
+                        # Extract definition
+                        definition = None
+                        if "description" in result and result["description"]:
+                            if isinstance(result["description"], list):
+                                definition = result["description"][0]
+                            else:
+                                definition = result["description"]
+                        # Try alternative field names
+                        elif "definition" in result:
+                            definition = result["definition"]
+                            
+                        # Extract synonyms
+                        synonyms = []
+                        if "synonym" in result and result["synonym"]:
+                            if isinstance(result["synonym"], list):
+                                synonyms = result["synonym"]
+                            else:
+                                synonyms = [result["synonym"]]
+                        logger.debug(f"Found {len(synonyms)} synonyms")
                         
-                        # Handle parent IDs
-                        parent_ids = result.get("parents", [])
-                        if isinstance(parent_ids, str):
-                            parent_ids = [parent_ids]
+                        # Extract parent IDs
+                        parent_ids = []
+                        if "is_a" in result and result["is_a"]:
+                            if isinstance(result["is_a"], list):
+                                for parent in result["is_a"]:
+                                    parent_id = parent
+                                    if parent.startswith("UBERON_"):
+                                        parent_id = parent.replace("_", ":", 1)
+                                    parent_ids.append(parent_id)
+                            else:
+                                parent = result["is_a"]
+                                parent_id = parent
+                                if parent.startswith("UBERON_"):
+                                    parent_id = parent.replace("_", ":", 1)
+                                parent_ids.append(parent_id)
+                        logger.debug(f"Found {len(parent_ids)} parent IDs")
                         
-                        # Construct URL if not present
-                        url = result.get("url")
+                        # Extract URL or construct one
+                        url = result.get("iri", "")
                         if not url and term_id:
                             url = f"http://purl.obolibrary.org/obo/{term_id.replace(':', '_')}"
                         
-                        # Create and add the term if it has minimum required data
+                        # Only add terms with required fields
                         if term_id and label:
                             term = UberonTerm(
                                 id=term_id,
@@ -324,40 +399,28 @@ class UberonService:
                                 url=url
                             )
                             terms.append(term)
+                            logger.debug(f"Added term: {term_id} - {label}")
                         else:
-                            logger.warning(f"Skipping result without required ID or label: {result}")
+                            logger.warning(f"Skipping term with missing required fields. ID: {term_id}, Label: {label}")
                     
                     except Exception as e:
-                        logger.error(f"Error parsing individual term from API response: {e}")
+                        logger.error(f"Error parsing individual term from EBI OLS4 API response: {e}")
                         logger.debug(f"Problematic term data: {result}")
-            
-            # Alternative response formats
-            elif "terms" in data:
-                logger.debug("Using 'terms' field in API response")
-                return self._parse_search_results({"results": data["terms"]})
-            
-            elif "response" in data and "docs" in data["response"]:
-                # Some APIs use Solr-style response format
-                logger.debug("Using Solr-style response format")
-                return self._parse_search_results({"results": data["response"]["docs"]})
-            
-            elif isinstance(data, list):
-                # Sometimes the API returns directly an array of results
-                logger.debug("API returned a list of results directly")
-                return self._parse_search_results({"results": data})
-            
             else:
-                logger.warning(f"Unexpected API response format. Available keys: {list(data.keys())}")
+                logger.warning(f"Unexpected EBI OLS4 API response format. Available keys: {list(data.keys())}")
         
         except Exception as e:
-            logger.error(f"Error parsing search results: {e}")
+            logger.error(f"Error parsing EBI OLS4 search results: {e}")
             logger.debug(f"API response data structure: {type(data)}")
+            import traceback
+            logger.debug(f"Exception traceback: {traceback.format_exc()}")
         
+        logger.info(f"Successfully parsed {len(terms)} terms from search results")
         return terms
     
     def _parse_term_result(self, data: Dict[str, Any]) -> Optional[UberonTerm]:
         """
-        Parse a single term result from the UBERON API.
+        Parse a single term result from the EBI OLS4 API.
         
         Args:
             data: JSON response from the API
@@ -365,22 +428,93 @@ class UberonService:
         Returns:
             UberonTerm object or None if parsing fails
         """
-        # This parsing logic should be updated based on the actual UBERON API response format
-        # The following is a placeholder implementation
         try:
-            if "term" in data:
-                term_data = data["term"]
+            # Extract the term ID - in EBI OLS4 detailed term view, it's in the obo_id field
+            # or can be extracted from the IRI
+            term_id = data.get("obo_id", "")
+            if not term_id:
+                # Try to extract from IRI
+                iri = data.get("iri", "")
+                if iri and "UBERON_" in iri:
+                    # Extract the ID portion from the IRI
+                    term_id = "UBERON:" + iri.split("UBERON_")[1]
+            
+            # Extract label
+            label = data.get("label", "")
+            
+            # Extract definition
+            definition = None
+            if "description" in data and data["description"]:
+                if isinstance(data["description"], list):
+                    definition = data["description"][0]
+                else:
+                    definition = data["description"]
+            # Some EBI OLS4 responses use "definition" instead of "description"
+            elif "definition" in data and data["definition"]:
+                if isinstance(data["definition"], list):
+                    definition = data["definition"][0]["definition"]
+                else:
+                    definition = data["definition"]
+            
+            # Extract synonyms - EBI OLS4 has a different structure for synonyms
+            synonyms = []
+            # Check in annotations which is where EBI OLS4 often puts synonyms
+            if "annotation" in data:
+                # Check for different synonym fields
+                for syn_field in ["has_exact_synonym", "hasExactSynonym", "synonym"]:
+                    if syn_field in data["annotation"]:
+                        syns = data["annotation"][syn_field]
+                        if isinstance(syns, list):
+                            synonyms.extend(syns)
+                        else:
+                            synonyms.append(syns)
+            # Also check direct synonym field
+            elif "synonyms" in data and data["synonyms"]:
+                for syn in data["synonyms"]:
+                    if "synonym" in syn:
+                        synonyms.append(syn["synonym"])
+            
+            # Extract parent IDs
+            parent_ids = []
+            # Check for parents/is_a in different fields
+            if "parents" in data and data["parents"]:
+                for parent in data["parents"]:
+                    if "obo_id" in parent:
+                        parent_ids.append(parent["obo_id"])
+            elif "is_a" in data and data["is_a"]:
+                if isinstance(data["is_a"], list):
+                    for parent in data["is_a"]:
+                        if isinstance(parent, str):
+                            parent_ids.append(parent.replace("_", ":", 1) if parent.startswith("UBERON_") else parent)
+                        elif isinstance(parent, dict) and "obo_id" in parent:
+                            parent_ids.append(parent["obo_id"])
+                else:
+                    parent = data["is_a"]
+                    if isinstance(parent, str):
+                        parent_ids.append(parent.replace("_", ":", 1) if parent.startswith("UBERON_") else parent)
+            
+            # Use the IRI directly
+            url = data.get("iri", "")
+            if not url and term_id:
+                url = f"http://purl.obolibrary.org/obo/{term_id.replace(':', '_')}"
+            
+            # Only create a term if we have the required fields
+            if term_id and label:
                 return UberonTerm(
-                    id=term_data.get("id", ""),
-                    label=term_data.get("label", ""),
-                    definition=term_data.get("definition", ""),
-                    synonyms=term_data.get("synonyms", []),
-                    parent_ids=term_data.get("parents", []),
-                    url=term_data.get("url", f"http://purl.obolibrary.org/obo/{term_data.get('id', '').replace(':', '_')}")
+                    id=term_id,
+                    label=label,
+                    definition=definition,
+                    synonyms=synonyms,
+                    parent_ids=parent_ids,
+                    url=url
                 )
+            
+            logger.warning(f"Could not extract required fields (ID and label) from term data")
             return None
+            
         except Exception as e:
-            logger.error(f"Error parsing term result: {e}")
+            logger.error(f"Error parsing EBI OLS4 term result: {e}")
+            logger.debug(f"Term data that could not be parsed: {data}")
             return None
     
     def _get_mock_results(self, query: str) -> List[UberonTerm]:
@@ -501,9 +635,9 @@ class UberonService:
         return []
 
     @classmethod
-    def check_ontobee_api_health(cls, timeout: int = 10) -> Dict[str, Any]:
+    def check_api_health(cls, timeout: int = 10) -> Dict[str, Any]:
         """
-        Class method to check the health of the Ontobee API.
+        Class method to check the health of the EBI OLS4 API.
         
         This method can be used independently to diagnose API connectivity issues.
         
@@ -513,98 +647,5 @@ class UberonService:
         Returns:
             Dictionary with API health information
         """
-        from src.config import settings
-        api_config = settings.UBERON_API
-        
-        base_url = api_config.BASE_URL
-        search_endpoint = api_config.SEARCH_ENDPOINT
-        term_endpoint = api_config.TERM_ENDPOINT
-        
-        search_url = f"{base_url}{search_endpoint}"
-        term_url = f"{base_url}{term_endpoint}"
-        
-        health_info = {
-            "base_url": base_url,
-            "search_endpoint": search_endpoint,
-            "term_endpoint": term_endpoint,
-            "search_url_accessible": False,
-            "term_url_accessible": False,
-            "search_response_valid": False,
-            "term_response_valid": False,
-            "error": None,
-            "dev_mode_recommended": False,
-            "timestamp": time.time()
-        }
-        
-        session = requests.Session()
-        
-        try:
-            # Test search endpoint
-            params = api_config.PARAMS.copy()
-            params.update({"q": "heart", "max_results": 1})
-            
-            search_response = session.get(search_url, params=params, timeout=timeout)
-            health_info["search_url_accessible"] = search_response.status_code == 200
-            health_info["search_status_code"] = search_response.status_code
-            
-            if health_info["search_url_accessible"]:
-                # Check if response is valid JSON
-                try:
-                    search_data = search_response.json()
-                    health_info["search_json_valid"] = True
-                    
-                    # Check if response has expected structure
-                    if "results" in search_data or "terms" in search_data:
-                        health_info["search_response_valid"] = True
-                    else:
-                        health_info["search_response_keys"] = list(search_data.keys())
-                except Exception as e:
-                    health_info["search_json_valid"] = False
-                    health_info["search_parse_error"] = str(e)
-            
-            # Test term endpoint with a known term ID
-            params = api_config.PARAMS.copy()
-            params.update({"id": "UBERON:0000948"})  # Heart ID
-            
-            term_response = session.get(term_url, params=params, timeout=timeout)
-            health_info["term_url_accessible"] = term_response.status_code == 200
-            health_info["term_status_code"] = term_response.status_code
-            
-            if health_info["term_url_accessible"]:
-                # Check if response is valid JSON
-                try:
-                    term_data = term_response.json()
-                    health_info["term_json_valid"] = True
-                    
-                    # Check if response has expected structure
-                    if "term" in term_data:
-                        health_info["term_response_valid"] = True
-                    else:
-                        health_info["term_response_keys"] = list(term_data.keys())
-                except Exception as e:
-                    health_info["term_json_valid"] = False
-                    health_info["term_parse_error"] = str(e)
-            
-            # Check if dev mode is recommended
-            if not health_info["search_url_accessible"] or not health_info["term_url_accessible"]:
-                health_info["dev_mode_recommended"] = True
-                health_info["recommendation"] = "API endpoints are not accessible, recommend using dev mode"
-            elif not health_info["search_json_valid"] or not health_info["term_json_valid"]:
-                health_info["dev_mode_recommended"] = True
-                health_info["recommendation"] = "API responses are not valid JSON, recommend using dev mode"
-            elif not health_info["search_response_valid"] or not health_info["term_response_valid"]:
-                health_info["dev_mode_recommended"] = True
-                health_info["recommendation"] = "API responses don't have expected structure, recommend using dev mode"
-            else:
-                health_info["recommendation"] = "API appears to be working correctly"
-                
-        except requests.exceptions.RequestException as e:
-            health_info["error"] = f"Request error: {str(e)}"
-            health_info["dev_mode_recommended"] = True
-            health_info["recommendation"] = "Cannot connect to API, recommend using dev mode"
-        except Exception as e:
-            health_info["error"] = f"Unexpected error: {str(e)}"
-            health_info["dev_mode_recommended"] = True
-            health_info["recommendation"] = "Error checking API health, recommend using dev mode"
-        
-        return health_info 
+        from src.tools.check_api import check_ebi_ols4_api_health
+        return check_ebi_ols4_api_health(timeout=timeout) 
