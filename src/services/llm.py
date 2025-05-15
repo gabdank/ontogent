@@ -140,6 +140,7 @@ class LLMService:
         if "Please analyze this query about an anatomical structure:" in prompt:
             # Extract the query
             query = prompt.split("Please analyze this query about an anatomical structure:")[1].strip()
+            logger.debug(f"Generating mock response for anatomical query: {query}")
             
             # Generate a mock response based on common anatomical terms
             mock_responses = {
@@ -155,11 +156,35 @@ class LLMService:
                     "recommended_search_query": "liver",
                     "explanation": "The query directly mentions the liver, which is a well-defined anatomical structure."
                 },
-                "embryonic": {
+                "embryonic heart": {
                     "extracted_concepts": ["embryonic heart", "embryo", "heart"],
                     "possible_uberon_terms": ["primitive heart", "embryonic heart tube"],
-                    "recommended_search_query": "embryonic heart",
+                    "recommended_search_query": "embryonic heart OR primitive heart OR heart primordium",
                     "explanation": "The query mentions an embryonic stage of heart development."
+                },
+                "colon": {
+                    "extracted_concepts": ["colon"],
+                    "possible_uberon_terms": ["colon", "large intestine"],
+                    "recommended_search_query": "colon",
+                    "explanation": "The query directly mentions the colon, which is a well-defined part of the large intestine."
+                },
+                "brain": {
+                    "extracted_concepts": ["brain"],
+                    "possible_uberon_terms": ["brain", "encephalon"],
+                    "recommended_search_query": "brain",
+                    "explanation": "The query directly mentions the brain, which is a well-defined anatomical structure."
+                },
+                "kidney": {
+                    "extracted_concepts": ["kidney"],
+                    "possible_uberon_terms": ["kidney", "renal organ"],
+                    "recommended_search_query": "kidney",
+                    "explanation": "The query directly mentions the kidney, which is a well-defined anatomical structure."
+                },
+                "lung": {
+                    "extracted_concepts": ["lung"],
+                    "possible_uberon_terms": ["lung", "pulmonary organ"],
+                    "recommended_search_query": "lung",
+                    "explanation": "The query directly mentions the lung, which is a well-defined anatomical structure."
                 },
                 "mouse": {
                     "extracted_concepts": ["mouse", "liver"],
@@ -170,25 +195,93 @@ class LLMService:
             }
             
             # Find the best matching mock response
+            query_lower = query.lower()
             for key, response in mock_responses.items():
-                if key in query.lower():
+                if key in query_lower:
+                    logger.debug(f"Found matching mock response for '{key}'")
                     return json.dumps(response, indent=2)
             
             # Default mock response
-            return json.dumps({
+            logger.debug(f"Using default mock response for '{query}'")
+            default_response = {
                 "extracted_concepts": [query],
                 "possible_uberon_terms": [query],
                 "recommended_search_query": query,
                 "explanation": f"The query mentions {query}, which might correspond to an anatomical structure."
-            }, indent=2)
+            }
+            return json.dumps(default_response, indent=2)
         
         # For ranking terms, return a generic ranking response
         elif "Please identify the best matching term based on the user's query" in prompt:
-            return json.dumps({
-                "best_match_id": "UBERON:0000948",
-                "confidence": 0.9,
-                "reasoning": "This term most closely matches the anatomical structure described in the query."
-            }, indent=2)
+            # Extract the query to customize the response a bit
+            query_match = "User query: "
+            if query_match in prompt:
+                query_text = prompt.split(query_match)[1].split("\n")[0].strip()
+                logger.debug(f"Generating mock ranking response for query: {query_text}")
+                
+                # Extract all terms from the prompt
+                term_info = []
+                current_term = {}
+                for line in prompt.split("\n"):
+                    if line.startswith("ID: "):
+                        if current_term and "id" in current_term:
+                            term_info.append(current_term)
+                            current_term = {}
+                        current_term["id"] = line.split("ID: ")[1].strip()
+                    elif line.startswith("Label: ") and "id" in current_term:
+                        current_term["label"] = line.split("Label: ")[1].strip()
+                    elif line.startswith("Definition: ") and "id" in current_term:
+                        current_term["definition"] = line.split("Definition: ")[1].strip()
+                
+                # Add the last term if it exists
+                if current_term and "id" in current_term:
+                    term_info.append(current_term)
+                
+                # Find the best matching term based on the query
+                best_match_id = None
+                if term_info:
+                    # First, look for exact matches with the label
+                    query_lower = query_text.lower()
+                    for term in term_info:
+                        if "label" in term and term["label"].lower() == query_lower:
+                            best_match_id = term["id"]
+                            logger.debug(f"Found exact label match: {best_match_id}")
+                            break
+                    
+                    # If no exact match, look for terms containing the query
+                    if not best_match_id:
+                        for term in term_info:
+                            if "label" in term and query_lower in term["label"].lower():
+                                best_match_id = term["id"]
+                                logger.debug(f"Found partial label match: {best_match_id}")
+                                break
+                    
+                    # If still no match, use the first term
+                    if not best_match_id:
+                        best_match_id = term_info[0]["id"]
+                        logger.debug(f"Using first term as fallback: {best_match_id}")
+                else:
+                    best_match_id = "UBERON:0000948"  # Default to heart
+                    logger.debug(f"No terms found, using default: {best_match_id}")
+            else:
+                best_match_id = "UBERON:0000948"  # Default to heart
+                query_text = "anatomical structure"
+                logger.debug(f"No query found, using default: {best_match_id}")
+            
+            # Generate a reasoning based on the query
+            reasoning = f"This term most closely matches the {query_text} described in the query based on semantic analysis."
+            
+            logger.debug(f"Using {best_match_id} as best match for ranking")
+            response = {
+                "best_match_id": best_match_id,
+                "confidence": 0.95,
+                "reasoning": reasoning
+            }
+            return json.dumps(response, indent=2)
         
-        # Default mock response
-        return "This is a mock response from the LLM service in development mode." 
+        # Default mock response as JSON to prevent parsing errors
+        logger.debug("Using default mock response for unrecognized prompt")
+        return json.dumps({
+            "response": "This is a mock response from the LLM service in development mode.",
+            "status": "ok"
+        }) 

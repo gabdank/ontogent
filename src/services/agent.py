@@ -52,7 +52,6 @@ class UberonAgent:
             analysis = self.llm_service.analyze_uberon_query(user_query)
             
             # Step 2: Extract a recommended search query from the LLM analysis
-            # In a real implementation, we would parse the JSON response from the LLM
             search_query = user_query
             
             try:
@@ -70,13 +69,26 @@ class UberonAgent:
             # Step 3: Search for UBERON terms using the EBI OLS4 API
             search_result = self.uberon_service.search(query_obj)
             
-            # Step 4: If we have multiple matches, ask the LLM to rank them
-            if len(search_result.matches) > 1:
-                best_match = self._rank_terms(user_query, search_result.matches)
-                if best_match:
-                    search_result.best_match = best_match["term"]
-                    search_result.confidence = best_match["confidence"]
-                    search_result.reasoning = best_match["reasoning"]
+            # Step 4: If we have matches, determine the best match
+            if search_result.matches:
+                # Try to find an exact match first before consulting the LLM
+                exact_match = self._find_exact_match(user_query, search_result.matches)
+                if exact_match:
+                    search_result.best_match = exact_match["term"]
+                    search_result.confidence = exact_match["confidence"]
+                    search_result.reasoning = exact_match["reasoning"]
+                # If no exact match and we have multiple terms, ask the LLM to rank them
+                elif len(search_result.matches) > 1:
+                    best_match = self._rank_terms(user_query, search_result.matches)
+                    if best_match:
+                        search_result.best_match = best_match["term"]
+                        search_result.confidence = best_match["confidence"]
+                        search_result.reasoning = best_match["reasoning"]
+                # If only one match, use it as the best match
+                elif len(search_result.matches) == 1:
+                    search_result.best_match = search_result.matches[0]
+                    search_result.confidence = 0.8
+                    search_result.reasoning = f"Only one matching term found for '{user_query}'."
             
             return search_result
             
@@ -84,6 +96,53 @@ class UberonAgent:
             logger.error(f"Error finding UBERON term: {e}")
             # Return an empty result in case of error
             return SearchResult(query=user_query)
+    
+    def _find_exact_match(self, query: str, terms: List[UberonTerm]) -> Optional[Dict[str, Any]]:
+        """
+        Find an exact match between the query and term labels.
+        
+        Args:
+            query: The original user query
+            terms: List of UberonTerm objects to check
+            
+        Returns:
+            Dict with the matching term, confidence, and reasoning, or None if no exact match
+        """
+        query_terms = [term.strip().lower() for term in query.split()]
+        
+        # First try exact matches (query exactly equals label)
+        for term in terms:
+            if term.label.lower() == query.lower():
+                logger.info(f"Found exact label match: {term.id} - {term.label}")
+                return {
+                    "term": term,
+                    "confidence": 0.95,
+                    "reasoning": f"This term directly matches the anatomical structure '{query}'."
+                }
+        
+        # Then try to match each word in the query to term labels
+        for term in terms:
+            label_words = term.label.lower().split()
+            # Check if all query terms appear in the label
+            if all(q_term in label_words for q_term in query_terms):
+                logger.info(f"Found term with all query terms in label: {term.id} - {term.label}")
+                return {
+                    "term": term,
+                    "confidence": 0.9,
+                    "reasoning": f"This term contains all words from the query '{query}' in its label."
+                }
+            
+            # Check if the label is a full part of the query (e.g., query="embryonic heart", label="heart")
+            if term.label.lower() in query.lower() and len(term.label) > 3:  # Avoid matching very short terms
+                logger.info(f"Found term label contained in query: {term.id} - {term.label}")
+                return {
+                    "term": term,
+                    "confidence": 0.85,
+                    "reasoning": f"The term directly represents the structure '{term.label}' mentioned in the query '{query}'."
+                }
+                
+        # No exact match found
+        return None
     
     def _rank_terms(self, query: str, terms: List[UberonTerm]) -> Optional[Dict[str, Any]]:
         """
@@ -97,6 +156,10 @@ class UberonAgent:
             Dict with the best matching term, confidence, and reasoning
         """
         try:
+            logger.debug(f"Ranking {len(terms)} terms for query: '{query}'")
+            for i, term in enumerate(terms):
+                logger.debug(f"Term {i+1}: {term.id} - {term.label}")
+            
             # Create a prompt for the LLM to rank the terms
             system_prompt = """
             You are an expert in anatomy and the UBERON ontology. Your task is to identify the most suitable
@@ -134,23 +197,47 @@ class UberonAgent:
             """
             
             # Query the LLM
+            logger.debug("Sending ranking prompt to LLM")
             response = self.llm_service.query(prompt, system_prompt)
+            logger.debug(f"Received LLM response: {response[:100]}...")
             
             try:
                 # Try to parse the JSON response
                 result = json.loads(response)
+                logger.debug(f"Parsed LLM response: {result}")
                 
                 # Find the term with the matching ID
+                best_match_id = result.get("best_match_id")
+                logger.debug(f"Looking for term with ID: {best_match_id}")
+                
+                matched_term = None
                 for term in terms:
-                    if term.id == result.get("best_match_id"):
+                    logger.debug(f"Comparing with term: {term.id}")
+                    if term.id == best_match_id:
+                        matched_term = term
+                        logger.debug(f"Found matching term: {term.id} - {term.label}")
+                        break
+                
+                if matched_term:
+                    return {
+                        "term": matched_term,
+                        "confidence": result.get("confidence", 0.7),
+                        "reasoning": result.get("reasoning", "This term best matches the query according to semantic analysis.")
+                    }
+                
+                # If we can't find the exact ID, check if the query matches any term labels
+                query_lower = query.lower()
+                for term in terms:
+                    if term.label.lower() == query_lower:
+                        logger.debug(f"Found term with matching label: {term.id} - {term.label}")
                         return {
                             "term": term,
-                            "confidence": result.get("confidence", 0.7),
-                            "reasoning": result.get("reasoning", "This term best matches the query according to semantic analysis.")
+                            "confidence": 0.9,
+                            "reasoning": f"This term exactly matches the query '{query}'."
                         }
                 
-                # If we can't find the exact ID, just use the first term
-                logger.warning(f"Could not find term with ID {result.get('best_match_id')}, using first term")
+                # If no exact match, just use the first term
+                logger.warning(f"Could not find term with ID {best_match_id}, using first term: {terms[0].id} - {terms[0].label}")
                 return {
                     "term": terms[0],
                     "confidence": result.get("confidence", 0.7),
@@ -160,6 +247,7 @@ class UberonAgent:
             except (json.JSONDecodeError, AttributeError, KeyError) as e:
                 logger.warning(f"Could not parse LLM ranking response: {e}")
                 # Fallback to using the first term
+                logger.debug(f"Using first term as fallback: {terms[0].id} - {terms[0].label}")
                 return {
                     "term": terms[0],
                     "confidence": 0.7,

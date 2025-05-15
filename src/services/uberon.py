@@ -557,6 +557,24 @@ class UberonService:
                     url="http://purl.obolibrary.org/obo/UBERON_0002107"
                 )
             ],
+            "colon": [
+                UberonTerm(
+                    id="UBERON:0001155",
+                    label="colon",
+                    definition="The region of the large intestine extending from the cecum to the rectum. It extracts moisture from food residues before they are eliminated.",
+                    synonyms=["large bowel", "large intestine"],
+                    parent_ids=["UBERON:0000160"],
+                    url="http://purl.obolibrary.org/obo/UBERON_0001155"
+                ),
+                UberonTerm(
+                    id="UBERON:0001153",
+                    label="caecum",
+                    definition="A pouch connected to the ascending colon, located at the intersection of the small and large intestines.",
+                    synonyms=["cecum", "blind gut"],
+                    parent_ids=["UBERON:0001155"],
+                    url="http://purl.obolibrary.org/obo/UBERON_0001153"
+                )
+            ],
             "brain": [
                 UberonTerm(
                     id="UBERON:0000955",
