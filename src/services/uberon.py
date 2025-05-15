@@ -5,9 +5,6 @@ This module handles fetching data from UBERON ontology sources using the EBI OLS
 and converting the raw data into structured UberonTerm objects.
 """
 
-# NOTE: This file has been modified to handle UBERON API connectivity issues.
-# The original version can be found in the same directory with a .bak extension.
-
 import logging
 import json
 import time
@@ -33,9 +30,6 @@ class UberonService:
     
     def __init__(self):
         """Initialize the UBERON service with configured retry policy."""
-        # Use the dev_mode setting from configuration
-        self.dev_mode = settings.DEV_MODE
-        
         self.api_config = settings.UBERON_API
         
         # Construct API URLs
@@ -44,17 +38,13 @@ class UberonService:
         
         logger.info(f"UBERON service initialized with API URL: {self.api_config.BASE_URL}")
         
-        # Set up session with retry policy if not in dev mode
-        if not self.dev_mode:
-            self.session = self._create_session()
-            # Test API connection and fall back to dev mode if not accessible
-            if not self.test_api_connection():
-                logger.warning("UBERON API is not accessible, falling back to development mode")
-                self.dev_mode = True
-                self.session = None
-        else:
-            logger.info("Using mock data in development mode")
-            self.session = None
+        # Set up session with retry policy
+        self.session = self._create_session()
+        
+        # Test API connection
+        if not self.test_api_connection():
+            logger.error("UBERON API is not accessible. Please check your network connection or API status.")
+            raise ConnectionError("Cannot connect to UBERON API. Service is unavailable.")
     
     def _create_session(self) -> requests.Session:
         """
@@ -137,25 +127,9 @@ class UberonService:
             SearchResult object containing matching terms
         """
         try:
-            logger.info(f"Searching UBERON for: {query.query} (dev_mode: {self.dev_mode})")
+            logger.info(f"Searching UBERON for: {query.query}")
             
-            # Use mock data in development mode
-            if self.dev_mode:
-                logger.info("Using mock data in development mode")
-                mock_terms = self._get_mock_results(query.query)
-                
-                result = SearchResult(
-                    query=query.query,
-                    matches=mock_terms,
-                    total_matches=len(mock_terms),
-                    best_match=mock_terms[0] if mock_terms else None,
-                    confidence=0.85 if mock_terms else None,
-                    reasoning="Based on exact match with the anatomical term name"
-                )
-                
-                return result
-            
-            # Make the actual API call in production mode
+            # Make the actual API call
             params = {
                 "q": query.query,
                 "ontology": "uberon",
@@ -198,103 +172,77 @@ class UberonService:
                 )
                 
                 return result
+                
             except requests.exceptions.RequestException as e:
-                logger.error(f"Error in EBI OLS4 API request: {e}")
-                return SearchResult(query=query.query)
+                logger.error(f"Error sending request to EBI OLS4 API: {e}")
+                raise ConnectionError(f"Failed to connect to UBERON API: {e}")
                 
         except Exception as e:
-            logger.error(f"Error searching UBERON via EBI OLS4 API: {e}")
-            import traceback
-            logger.debug(f"Exception traceback: {traceback.format_exc()}")
+            logger.error(f"Error searching UBERON terms: {e}")
+            # Return an empty result in case of error
             return SearchResult(query=query.query)
     
     @log_with_context
     def get_term_by_id(self, term_id: str) -> Optional[UberonTerm]:
         """
-        Get a specific UBERON term by ID using the EBI OLS4 API.
+        Get a single UBERON term by its ID.
         
         Args:
-            term_id: UBERON ID (e.g., 'UBERON:0000948')
+            term_id: The UBERON term ID (e.g., "UBERON:0000948")
             
         Returns:
-            UberonTerm object or None if not found
+            UberonTerm object if found, None otherwise
         """
         try:
             logger.info(f"Getting UBERON term by ID: {term_id}")
             
-            # Use mock data in development mode
-            if self.dev_mode:
-                # Return mock data for known terms
-                if term_id == "UBERON:0000948":
-                    return UberonTerm(
-                        id="UBERON:0000948",
-                        label="heart",
-                        definition="A hollow, muscular organ, which, by contracting rhythmically, keeps up the circulation of the blood.",
-                        synonyms=["cardiac muscle"],
-                        parent_ids=["UBERON:0000077"],
-                        url="http://purl.obolibrary.org/obo/UBERON_0000948"
-                    )
-                elif term_id == "UBERON:0004146":
-                    return UberonTerm(
-                        id="UBERON:0004146",
-                        label="primitive heart",
-                        definition="The developing heart at the cardiac crescent stage.",
-                        synonyms=["embryonic heart"],
-                        parent_ids=["UBERON:0000948"],
-                        url="http://purl.obolibrary.org/obo/UBERON_0004146"
-                    )
-                elif term_id == "UBERON:0002107":
-                    return UberonTerm(
-                        id="UBERON:0002107",
-                        label="liver",
-                        definition="A large, reddish-brown glandular organ in the abdominal cavity that is responsible for detoxifying metabolites, synthesizing proteins, and producing biochemicals necessary for digestion.",
-                        synonyms=["hepar"],
-                        parent_ids=["UBERON:0001434"],
-                        url="http://purl.obolibrary.org/obo/UBERON_0002107"
-                    )
-                return None
-            
-            # Format term ID for the EBI OLS4 API
+            # Format the term ID for the API
+            formatted_id = term_id
             if ":" in term_id:
-                formatted_id = term_id.replace(":", "_")
-            else:
-                formatted_id = term_id
+                # The EBI OLS4 API expects the ID to be URL-encoded and in a specific format
+                ontology, code = term_id.split(":", 1)
+                formatted_id = f"{ontology.lower()}:{code}"
             
-            # Construct the IRI for the term (required by EBI OLS4 API)
-            term_iri = f"http://purl.obolibrary.org/obo/{formatted_id}"
-            # URL encode the IRI 
-            encoded_iri = urllib.parse.quote(term_iri)
+            # Construct the URL for the specific term
+            term_url = f"{self.term_url}/{urllib.parse.quote(formatted_id)}"
             
-            # Make the API call in production mode
-            # In EBI OLS4, the correct URL format is /api/ontologies/uberon/terms/{encoded_iri}
-            term_request_url = f"{self.api_config.BASE_URL}/ontologies/uberon/terms/{encoded_iri}"
+            logger.debug(f"Fetching term details from {term_url}")
             
-            logger.debug(f"Requesting term details from: {term_request_url}")
-            response = self.session.get(
-                term_request_url,
-                timeout=self.api_config.TIMEOUT
-            )
-            response.raise_for_status()
-            
-            # Parse the response
-            data = response.json()
-            
-            # Convert API response to UberonTerm object
-            return self._parse_term_result(data)
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error in EBI OLS4 API request: {e}")
-            return None
+            try:
+                response = self.session.get(
+                    term_url,
+                    timeout=self.api_config.TIMEOUT
+                )
+                response.raise_for_status()
+                
+                # Parse the response
+                data = response.json()
+                logger.debug(f"Received term data with status code {response.status_code}")
+                
+                # Convert API response to a UberonTerm object
+                term = self._parse_term_result(data)
+                
+                if term:
+                    logger.info(f"Successfully retrieved term: {term.id} - {term.label}")
+                else:
+                    logger.warning(f"Term with ID {term_id} not found or could not be parsed")
+                
+                return term
+                
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Error fetching term by ID from EBI OLS4 API: {e}")
+                raise ConnectionError(f"Failed to connect to UBERON API: {e}")
+                
         except Exception as e:
             logger.error(f"Error getting UBERON term by ID: {e}")
             return None
     
     def _parse_search_results(self, data: Dict[str, Any]) -> List[UberonTerm]:
         """
-        Parse search results from the EBI OLS4 API.
+        Parse search results from the EBI OLS4 API response.
         
         Args:
-            data: JSON response from the API
+            data: API response data
             
         Returns:
             List of UberonTerm objects
@@ -302,171 +250,157 @@ class UberonService:
         terms = []
         
         try:
-            # EBI OLS4 API uses Solr-style response format
-            if "response" in data and "docs" in data["response"]:
-                results = data["response"]["docs"]
-                logger.debug(f"Found {len(results)} results from EBI OLS4 API")
-                
-                for i, result in enumerate(results):
-                    try:
-                        logger.debug(f"Processing result {i+1}/{len(results)}: {result.get('id', '(no id)')} - {result.get('label', '(no label)')}")
-                        
-                        # Extract ID and ensure it's properly formatted
-                        term_id = result.get("curie", result.get("id", ""))
-                        logger.debug(f"Initial term_id from API: {term_id}")
-                        
-                        # Handle cases where obo_id might be different
-                        if "obo_id" in result:
-                            term_id = result["obo_id"]
-                            logger.debug(f"Using obo_id instead: {term_id}")
-                            
-                        # Handle short_form which is used in EBI OLS4
-                        if not term_id and "short_form" in result:
-                            short_form = result["short_form"]
-                            if short_form.startswith("UBERON_"):
-                                term_id = short_form.replace("_", ":", 1)
-                                logger.debug(f"Using short_form to create term_id: {term_id}")
-                                
-                        # Try to extract from IRI as last resort
-                        if not term_id and "iri" in result:
-                            iri = result["iri"]
-                            if "UBERON_" in iri:
-                                term_id = "UBERON:" + iri.split("UBERON_")[1]
-                                logger.debug(f"Extracted term_id from IRI: {term_id}")
-                        
-                        if term_id and not term_id.startswith("UBERON:"):
-                            # Handle differently formatted IDs
-                            if term_id.startswith("UBERON_"):
-                                term_id = term_id.replace("_", ":", 1)
-                                logger.debug(f"Reformatted UBERON_ id to: {term_id}")
-                            elif ":" not in term_id and term_id.isdigit():
-                                term_id = f"UBERON:{term_id}"
-                                logger.debug(f"Added UBERON prefix to numeric id: {term_id}")
-                        
-                        # Extract label
-                        label = result.get("label", "")
-                        
-                        # Extract definition
-                        definition = None
-                        if "description" in result and result["description"]:
-                            if isinstance(result["description"], list):
-                                definition = result["description"][0]
-                            else:
-                                definition = result["description"]
-                        # Try alternative field names
-                        elif "definition" in result:
-                            definition = result["definition"]
-                            
-                        # Extract synonyms
-                        synonyms = []
-                        if "synonym" in result and result["synonym"]:
-                            if isinstance(result["synonym"], list):
-                                synonyms = result["synonym"]
-                            else:
-                                synonyms = [result["synonym"]]
-                        logger.debug(f"Found {len(synonyms)} synonyms")
-                        
-                        # Extract parent IDs
-                        parent_ids = []
-                        if "is_a" in result and result["is_a"]:
-                            if isinstance(result["is_a"], list):
-                                for parent in result["is_a"]:
-                                    parent_id = parent
-                                    if parent.startswith("UBERON_"):
-                                        parent_id = parent.replace("_", ":", 1)
-                                    parent_ids.append(parent_id)
-                            else:
-                                parent = result["is_a"]
-                                parent_id = parent
-                                if parent.startswith("UBERON_"):
-                                    parent_id = parent.replace("_", ":", 1)
-                                parent_ids.append(parent_id)
-                        logger.debug(f"Found {len(parent_ids)} parent IDs")
-                        
-                        # Extract URL or construct one
-                        url = result.get("iri", "")
-                        if not url and term_id:
-                            url = f"http://purl.obolibrary.org/obo/{term_id.replace(':', '_')}"
-                        
-                        # Only add terms with required fields
-                        if term_id and label:
-                            term = UberonTerm(
-                                id=term_id,
-                                label=label,
-                                definition=definition,
-                                synonyms=synonyms,
-                                parent_ids=parent_ids,
-                                url=url
-                            )
-                            terms.append(term)
-                            logger.debug(f"Added term: {term_id} - {label}")
+            # Check if we have a valid response structure
+            if "response" not in data or "docs" not in data["response"]:
+                logger.warning("Invalid API response format for search results")
+                return terms
+            
+            # Get the docs from the response
+            docs = data["response"]["docs"]
+            logger.debug(f"Found {len(docs)} docs in search results")
+            
+            # Process each document to create a UberonTerm
+            for doc in docs:
+                try:
+                    # Extract the term ID
+                    term_id = None
+                    if "curie" in doc:
+                        term_id = doc["curie"]
+                    elif "obo_id" in doc:
+                        term_id = doc["obo_id"]
+                    elif "short_form" in doc:
+                        # We need to reconstruct the ID from short_form and ontology
+                        if "ontology_prefix" in doc:
+                            term_id = f"{doc['ontology_prefix']}:{doc['short_form'].split('_')[-1]}"
                         else:
-                            logger.warning(f"Skipping term with missing required fields. ID: {term_id}, Label: {label}")
+                            term_id = doc["short_form"].replace("_", ":", 1)
                     
-                    except Exception as e:
-                        logger.error(f"Error parsing individual term from EBI OLS4 API response: {e}")
-                        logger.debug(f"Problematic term data: {result}")
-            else:
-                logger.warning(f"Unexpected EBI OLS4 API response format. Available keys: {list(data.keys())}")
-        
+                    if not term_id:
+                        logger.warning(f"Could not extract term ID from doc: {doc}")
+                        continue
+                    
+                    # Extract the label
+                    label = doc.get("label") or doc.get("title") or doc.get("name")
+                    if not label:
+                        logger.warning(f"Could not extract label for term {term_id}")
+                        continue
+                    
+                    # Extract the definition
+                    definition = None
+                    if "description" in doc and doc["description"]:
+                        if isinstance(doc["description"], list):
+                            definition = doc["description"][0]
+                        else:
+                            definition = doc["description"]
+                    elif "def" in doc:
+                        definition = doc["def"]
+                    elif "obo_definition_citation" in doc:
+                        if isinstance(doc["obo_definition_citation"], list) and len(doc["obo_definition_citation"]) > 0:
+                            definition_entry = doc["obo_definition_citation"][0]
+                            if isinstance(definition_entry, dict) and "definition" in definition_entry:
+                                definition = definition_entry["definition"]
+                    
+                    # Extract synonyms
+                    synonyms = []
+                    if "synonym" in doc and doc["synonym"]:
+                        synonyms = doc["synonym"] if isinstance(doc["synonym"], list) else [doc["synonym"]]
+                    elif "obo_synonym" in doc and doc["obo_synonym"]:
+                        for syn_entry in doc["obo_synonym"]:
+                            if isinstance(syn_entry, dict) and "synonym" in syn_entry:
+                                synonyms.append(syn_entry["synonym"])
+                            elif isinstance(syn_entry, str):
+                                synonyms.append(syn_entry)
+                    
+                    # Create the URL for the term
+                    url = f"http://purl.obolibrary.org/obo/{term_id.replace(':', '_')}"
+                    
+                    # Create the UberonTerm object and add it to the list
+                    term = UberonTerm(
+                        id=term_id,
+                        label=label,
+                        definition=definition,
+                        synonyms=synonyms,
+                        parent_ids=[],  # We don't get parent IDs in the search results
+                        url=url
+                    )
+                    
+                    terms.append(term)
+                    
+                except Exception as e:
+                    logger.warning(f"Error parsing individual term from search results: {e}")
+                    continue
+            
+            logger.info(f"Successfully parsed {len(terms)} terms from search results")
+            return terms
+            
         except Exception as e:
-            logger.error(f"Error parsing EBI OLS4 search results: {e}")
-            logger.debug(f"API response data structure: {type(data)}")
-            import traceback
-            logger.debug(f"Exception traceback: {traceback.format_exc()}")
-        
-        logger.info(f"Successfully parsed {len(terms)} terms from search results")
-        return terms
+            logger.error(f"Error parsing search results: {e}")
+            return terms
     
     def _parse_term_result(self, data: Dict[str, Any]) -> Optional[UberonTerm]:
         """
         Parse a single term result from the EBI OLS4 API.
         
         Args:
-            data: JSON response from the API
+            data: API response data for a single term
             
         Returns:
-            UberonTerm object or None if parsing fails
+            UberonTerm object if successful, None otherwise
         """
         try:
-            # Extract the term ID - in EBI OLS4 detailed term view, it's in the obo_id field
-            # or can be extracted from the IRI
-            term_id = data.get("obo_id", "")
+            # Extract the term ID
+            term_id = None
+            if "curie" in data:
+                term_id = data["curie"]
+            elif "obo_id" in data:
+                term_id = data["obo_id"]
+            elif "short_form" in data:
+                # We need to reconstruct the ID from short_form and ontology
+                if "ontology_prefix" in data:
+                    term_id = f"{data['ontology_prefix']}:{data['short_form'].split('_')[-1]}"
+                else:
+                    term_id = data["short_form"].replace("_", ":", 1)
+            
             if not term_id:
-                # Try to extract from IRI
-                iri = data.get("iri", "")
-                if iri and "UBERON_" in iri:
-                    # Extract the ID portion from the IRI
-                    term_id = "UBERON:" + iri.split("UBERON_")[1]
+                logger.warning("Could not extract term ID from response data")
+                return None
             
-            # Extract label
-            label = data.get("label", "")
+            # Extract the label
+            label = data.get("label") or data.get("title") or data.get("name")
+            if not label:
+                logger.warning(f"Could not extract label for term {term_id}")
+                return None
             
-            # Extract definition
+            # Extract the definition
             definition = None
             if "description" in data and data["description"]:
                 if isinstance(data["description"], list):
                     definition = data["description"][0]
                 else:
                     definition = data["description"]
-            # Some EBI OLS4 responses use "definition" instead of "description"
-            elif "definition" in data and data["definition"]:
-                if isinstance(data["definition"], list):
-                    definition = data["definition"][0]["definition"]
-                else:
-                    definition = data["definition"]
+            elif "def" in data:
+                definition = data["def"]
+            elif "obo_definition_citation" in data:
+                if isinstance(data["obo_definition_citation"], list) and len(data["obo_definition_citation"]) > 0:
+                    definition_entry = data["obo_definition_citation"][0]
+                    if isinstance(definition_entry, dict) and "definition" in definition_entry:
+                        definition = definition_entry["definition"]
             
-            # Extract synonyms - EBI OLS4 has a different structure for synonyms
+            # Extract synonyms
             synonyms = []
-            # Check in annotations which is where EBI OLS4 often puts synonyms
-            if "annotation" in data:
-                # Check for different synonym fields
-                for syn_field in ["has_exact_synonym", "hasExactSynonym", "synonym"]:
-                    if syn_field in data["annotation"]:
-                        syns = data["annotation"][syn_field]
-                        if isinstance(syns, list):
-                            synonyms.extend(syns)
-                        else:
+            if "synonym" in data and data["synonym"]:
+                if isinstance(data["synonym"], list):
+                    synonyms = data["synonym"]
+                else:
+                    synonyms = [data["synonym"]]
+            elif "obo_synonym" in data and data["obo_synonym"]:
+                for syn_entry in data["obo_synonym"]:
+                    if isinstance(syn_entry, dict):
+                        if "synonym" in syn_entry:
+                            synonyms.append(syn_entry["synonym"])
+                    elif isinstance(syn_entry, str):
+                        for syns in syn_entry.split('",'):
+                            syns = syns.strip('"')
                             synonyms.append(syns)
             # Also check direct synonym field
             elif "synonyms" in data and data["synonyms"]:
@@ -516,141 +450,6 @@ class UberonService:
             logger.error(f"Error parsing EBI OLS4 term result: {e}")
             logger.debug(f"Term data that could not be parsed: {data}")
             return None
-    
-    def _get_mock_results(self, query: str) -> List[UberonTerm]:
-        """
-        Get mock results for testing.
-        
-        Args:
-            query: Search query
-            
-        Returns:
-            List of UberonTerm objects
-        """
-        # Expanded mock implementation with more common anatomical terms
-        mock_data = {
-            "heart": [
-                UberonTerm(
-                    id="UBERON:0000948",
-                    label="heart",
-                    definition="A hollow, muscular organ, which, by contracting rhythmically, keeps up the circulation of the blood.",
-                    synonyms=["cardiac muscle"],
-                    parent_ids=["UBERON:0000077"],
-                    url="http://purl.obolibrary.org/obo/UBERON_0000948"
-                ),
-                UberonTerm(
-                    id="UBERON:0004146",
-                    label="primitive heart",
-                    definition="The developing heart at the cardiac crescent stage.",
-                    synonyms=["embryonic heart"],
-                    parent_ids=["UBERON:0000948"],
-                    url="http://purl.obolibrary.org/obo/UBERON_0004146"
-                )
-            ],
-            "liver": [
-                UberonTerm(
-                    id="UBERON:0002107",
-                    label="liver",
-                    definition="A large, reddish-brown glandular organ in the abdominal cavity that is responsible for detoxifying metabolites, synthesizing proteins, and producing biochemicals necessary for digestion.",
-                    synonyms=["hepar"],
-                    parent_ids=["UBERON:0001434"],
-                    url="http://purl.obolibrary.org/obo/UBERON_0002107"
-                )
-            ],
-            "colon": [
-                UberonTerm(
-                    id="UBERON:0001155",
-                    label="colon",
-                    definition="The region of the large intestine extending from the cecum to the rectum. It extracts moisture from food residues before they are eliminated.",
-                    synonyms=["large bowel", "large intestine"],
-                    parent_ids=["UBERON:0000160"],
-                    url="http://purl.obolibrary.org/obo/UBERON_0001155"
-                ),
-                UberonTerm(
-                    id="UBERON:0001153",
-                    label="caecum",
-                    definition="A pouch connected to the ascending colon, located at the intersection of the small and large intestines.",
-                    synonyms=["cecum", "blind gut"],
-                    parent_ids=["UBERON:0001155"],
-                    url="http://purl.obolibrary.org/obo/UBERON_0001153"
-                )
-            ],
-            "brain": [
-                UberonTerm(
-                    id="UBERON:0000955",
-                    label="brain",
-                    definition="The brain is the center of the nervous system in all vertebrate and most invertebrate animals.",
-                    synonyms=["encephalon"],
-                    parent_ids=["UBERON:0000062"],
-                    url="http://purl.obolibrary.org/obo/UBERON_0000955"
-                )
-            ],
-            "lung": [
-                UberonTerm(
-                    id="UBERON:0002048",
-                    label="lung",
-                    definition="Either of the pair of organs occupying the chest cavity that effect the aeration of the blood.",
-                    synonyms=["pulmo"],
-                    parent_ids=["UBERON:0001004"],
-                    url="http://purl.obolibrary.org/obo/UBERON_0002048"
-                )
-            ],
-            "kidney": [
-                UberonTerm(
-                    id="UBERON:0002113",
-                    label="kidney",
-                    definition="Organ that filters blood and excretes urine and regulates blood ionic composition, volume, and pH.",
-                    synonyms=["ren"],
-                    parent_ids=["UBERON:0001008"],
-                    url="http://purl.obolibrary.org/obo/UBERON_0002113"
-                )
-            ],
-            "blood": [
-                UberonTerm(
-                    id="UBERON:0000178",
-                    label="blood",
-                    definition="A fluid that circulates throughout the heart and blood vessels, carrying oxygen and nutrients to cells and waste materials away from them.",
-                    synonyms=["haema", "hema"],
-                    parent_ids=["UBERON:0000479"],
-                    url="http://purl.obolibrary.org/obo/UBERON_0000178"
-                )
-            ],
-            "bone": [
-                UberonTerm(
-                    id="UBERON:0002371",
-                    label="bone",
-                    definition="Rigid connective tissue that makes up the skeletal system of vertebrates.",
-                    synonyms=["os"],
-                    parent_ids=["UBERON:0000061"],
-                    url="http://purl.obolibrary.org/obo/UBERON_0002371"
-                )
-            ]
-        }
-        
-        # Convert query to lowercase for case-insensitive matching
-        query_lower = query.lower()
-        
-        # Try exact term match first
-        for key, terms in mock_data.items():
-            # Match whole words for better precision
-            if key == query_lower or f" {key} " in f" {query_lower} ":
-                logger.info(f"Found exact match in mock data for term: {key}")
-                return terms
-        
-        # If no exact match, try partial matching
-        matching_terms = []
-        for key, terms in mock_data.items():
-            if key in query_lower:
-                logger.info(f"Found partial match in mock data for term: {key}")
-                matching_terms.extend(terms)
-        
-        # Return any matching terms found
-        if matching_terms:
-            return matching_terms
-            
-        # If no matches at all, log this for debugging
-        logger.warning(f"No matching terms found in mock data for query: {query}")
-        return []
 
     @classmethod
     def check_api_health(cls, timeout: int = 10) -> Dict[str, Any]:

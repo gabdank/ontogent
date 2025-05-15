@@ -16,9 +16,6 @@ from pydantic import BaseModel, Field, validator, HttpUrl
 env_path = Path('.') / '.env'
 load_dotenv(dotenv_path=env_path)
 
-# Determine if we're in development mode
-DEV_MODE = os.environ.get('ONTOGENT_DEV_MODE', 'false').lower() in ('true', '1', 't')
-
 class UberonApiSettings(BaseModel):
     """Settings specific to the UBERON API."""
     
@@ -52,7 +49,7 @@ class Settings(BaseModel):
     
     # API Keys
     ANTHROPIC_API_KEY: str = Field(
-        os.environ.get('ANTHROPIC_API_KEY', 'sk-ant-mock-api-key-for-development-only' if DEV_MODE else None),
+        os.environ.get('ANTHROPIC_API_KEY', None),
         description="Anthropic API key for Claude 3.5"
     )
     
@@ -76,13 +73,10 @@ class Settings(BaseModel):
         description="UBERON API configuration"
     )
     
-    # Development mode
-    DEV_MODE: bool = Field(DEV_MODE, description="Whether to run in development mode with mock data")
-    
     @validator("ANTHROPIC_API_KEY", pre=True)
     def validate_api_key(cls, v):
-        if not v and not DEV_MODE:
-            raise ValueError("ANTHROPIC_API_KEY is required in production mode. Set ONTOGENT_DEV_MODE=true to use mock data.")
+        if not v:
+            raise ValueError("ANTHROPIC_API_KEY is required. Please set your API key in the environment variables.")
         return v
     
     @validator("TEMPERATURE")
@@ -93,8 +87,3 @@ class Settings(BaseModel):
 
 # Create a global instance of settings
 settings = Settings()
-
-# Print a warning if using mock API key
-if settings.ANTHROPIC_API_KEY.startswith('sk-ant-mock') and DEV_MODE:
-    print("\n⚠️ WARNING: Using mock API key in development mode. LLM functionality will be simulated.\n")
-    print("To use real LLM functionality, set your ANTHROPIC_API_KEY environment variable or set ONTOGENT_DEV_MODE=false.\n")

@@ -68,31 +68,18 @@ Create a `.env` file with the following settings:
 # API Keys
 ANTHROPIC_API_KEY=your_api_key_here
 
-# Development Mode (set to true to use mock data, false for production)
-ONTOGENT_DEV_MODE=false
-
 # LLM Configuration (optional - these have defaults)
 LLM_MODEL_NAME=claude-3-5-sonnet-20240620
 LLM_MAX_TOKENS=4000
 LLM_TEMPERATURE=0.1
 
 # UBERON API Configuration (optional - these have defaults)
-UBERON_API_BASE_URL=http://www.ontobee.org/api
+UBERON_API_BASE_URL=https://www.ebi.ac.uk/ols4/api
 UBERON_API_SEARCH_ENDPOINT=/search
-UBERON_API_TERM_ENDPOINT=/term
+UBERON_API_TERM_ENDPOINT=/terms
 UBERON_API_TIMEOUT=30
 UBERON_API_MAX_RETRIES=3
 ```
-
-#### Development Mode
-
-For development without an Anthropic API key, set:
-
-```
-ONTOGENT_DEV_MODE=true
-```
-
-This will use mock responses for both LLM and UBERON services.
 
 ## Usage
 
@@ -142,7 +129,7 @@ ontogent/
 
 ### UBERON API Integration
 
-The application connects to the UBERON ontology through its API. The default configuration points to the public Ontobee API endpoint, but you can customize it through environment variables.
+The application connects to the UBERON ontology through the EBI OLS4 API. The default configuration points to the public EBI OLS4 API endpoint, but you can customize it through environment variables.
 
 For custom API integration, implement the following in `.env` file:
 
@@ -156,11 +143,11 @@ For alternative API endpoints, you may need to update the parsing logic in `src/
 
 ### API Troubleshooting
 
-The Ontobee API occasionally experiences connectivity or response format issues. The application includes tools to help diagnose and resolve these problems:
+The EBI OLS4 API occasionally experiences connectivity or response format issues. The application includes tools to help diagnose and resolve these problems:
 
 #### Checking API Status
 
-Use the included API check tool to verify the Ontobee API is accessible and functioning correctly:
+Use the included API check tool to verify the EBI OLS4 API is accessible and functioning correctly:
 
 ```bash
 # Run the API check tool
@@ -179,30 +166,7 @@ This tool will:
 3. Validate response structure
 4. Provide recommendations for configuration
 
-If the API is not accessible or returning invalid responses, the tool will suggest using development mode.
-
-#### Using Development Mode
-
-When the Ontobee API is unavailable, you can use development mode, which provides mock data for common anatomical terms:
-
-```
-ONTOGENT_DEV_MODE=true
-```
-
-In development mode, the application will:
-- Use mock UBERON data for common terms (heart, liver, brain, lung, kidney, blood, bone)
-- Log that it's using mock data
-- Still use the real LLM API (unless ANTHROPIC_API_KEY is not set)
-
-#### Switching Between Mock and Real API
-
-The application has automatic fallback to development mode if the API is not accessible. You can also force it to always try the real API first by setting:
-
-```
-ONTOGENT_DEV_MODE=false
-```
-
-This setting will attempt to connect to the real API, but will gracefully fall back to mock data if the API is unavailable or not responding correctly.
+If the API is not accessible or returning invalid responses, the tool will display error information and recommendations.
 
 #### API Response Debugging
 

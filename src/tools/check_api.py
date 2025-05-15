@@ -77,11 +77,11 @@ def main():
         print("\nSummary:")
         if health_info["error"]:
             print(f"  Error: {health_info['error']}")
-        print(f"  Development mode recommended: {health_info['dev_mode_recommended']}")
+        print(f"  API status: {'Healthy' if health_info['api_healthy'] else 'Unhealthy'}")
         print(f"  Recommendation: {health_info['recommendation']}")
         
     # Return success if API is working, failure otherwise
-    return 0 if not health_info["dev_mode_recommended"] else 1
+    return 0 if health_info["api_healthy"] else 1
 
 
 def check_ebi_ols4_api_health(timeout: int = 10) -> dict:
@@ -118,7 +118,7 @@ def check_ebi_ols4_api_health(timeout: int = 10) -> dict:
         "search_response_valid": False,
         "term_response_valid": False,
         "error": None,
-        "dev_mode_recommended": False,
+        "api_healthy": False,
         "timestamp": time.time()
     }
     
@@ -186,27 +186,28 @@ def check_ebi_ols4_api_health(timeout: int = 10) -> dict:
                 health_info["term_json_valid"] = False
                 health_info["term_parse_error"] = str(e)
         
-        # Check if dev mode is recommended
+        # Determine if API is healthy
         if not health_info["search_url_accessible"] or not health_info["term_url_accessible"]:
-            health_info["dev_mode_recommended"] = True
-            health_info["recommendation"] = "API endpoints are not accessible, recommend using dev mode"
+            health_info["api_healthy"] = False
+            health_info["recommendation"] = "API endpoints are not accessible. Check your network connection and try again. If the issue persists, the EBI OLS4 API may be experiencing downtime."
         elif not health_info["search_json_valid"] or not health_info["term_json_valid"]:
-            health_info["dev_mode_recommended"] = True
-            health_info["recommendation"] = "API responses are not valid JSON, recommend using dev mode"
+            health_info["api_healthy"] = False
+            health_info["recommendation"] = "API responses are not valid JSON. The EBI OLS4 API may have changed its response format or is returning errors."
         elif not health_info["search_response_valid"]:
-            health_info["dev_mode_recommended"] = True
-            health_info["recommendation"] = "API search response doesn't have expected structure, recommend using dev mode"
+            health_info["api_healthy"] = False
+            health_info["recommendation"] = "API search response doesn't have the expected structure. The EBI OLS4 API may have changed its response format."
         else:
-            health_info["recommendation"] = "API appears to be working correctly"
+            health_info["api_healthy"] = True
+            health_info["recommendation"] = "API appears to be working correctly."
             
     except requests.exceptions.RequestException as e:
         health_info["error"] = f"Request error: {str(e)}"
-        health_info["dev_mode_recommended"] = True
-        health_info["recommendation"] = "Cannot connect to API, recommend using dev mode"
+        health_info["api_healthy"] = False
+        health_info["recommendation"] = f"Cannot connect to API: {str(e)}. Check your network connection and API endpoint configuration."
     except Exception as e:
         health_info["error"] = f"Unexpected error: {str(e)}"
-        health_info["dev_mode_recommended"] = True
-        health_info["recommendation"] = "Error checking API health, recommend using dev mode"
+        health_info["api_healthy"] = False
+        health_info["recommendation"] = f"Error checking API health: {str(e)}. Please report this issue."
     
     return health_info
 
