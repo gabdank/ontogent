@@ -3,7 +3,7 @@ name = "ontogent"
 version = "0.1.0"
 description = "AI agent for finding suitable UBERON ontology terms"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"},
+    {name = "Idan Gabdank", email = "idan.gabdank@gmail.com"},
 ]
 dependencies = [
     "anthropic>=0.6.0",

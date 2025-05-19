@@ -7,63 +7,50 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
+  test-and-build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [3.9, 3.10, 3.11]
-
+    
     steps:
     - uses: actions/checkout@v3
     
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Set up Python 3.11
       uses: actions/setup-python@v4
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: 3.11
     
     - name: Install Rye
       run: |
         curl -sSf https://rye-up.com/get | bash
-        echo "$HOME/.rye/shims" >> $GITHUB_PATH
+        echo "$HOME/.rye/bin" >> $GITHUB_PATH
+        export PATH="$HOME/.rye/bin:$PATH"
+        rye --version
     
     - name: Install dependencies
       run: |
+        export PATH="$HOME/.rye/bin:$PATH"
         rye sync
     
     - name: Lint with Ruff
       run: |
+        export PATH="$HOME/.rye/bin:$PATH"
         rye run python -m ruff .
     
     - name: Test with pytest
       run: |
+        export PATH="$HOME/.rye/bin:$PATH"
         rye run python -m pytest
       env:
         # Use dummy API key for tests (mocks will be used)
         ANTHROPIC_API_KEY: dummy_key_for_testing
-
-  build:
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Python 3.9
-      uses: actions/setup-python@v4
-      with:
-        python-version: 3.9
-    
-    - name: Install Rye
-      run: |
-        curl -sSf https://rye-up.com/get | bash
-        echo "$HOME/.rye/shims" >> $GITHUB_PATH
     
     - name: Build package
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: |
+        export PATH="$HOME/.rye/bin:$PATH"
         rye build
     
     - name: Upload artifacts
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: actions/upload-artifact@v3
       with:
         name: package
