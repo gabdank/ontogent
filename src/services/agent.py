@@ -154,6 +154,7 @@ class UberonAgent:
             Dict with the matching term, confidence, and reasoning, or None if no exact match
         """
         query_terms = [term.strip().lower() for term in query.split()]
+        is_compound_query = len(query_terms) > 1
         
         # First try exact matches (query exactly equals label)
         for term in terms:
@@ -176,8 +177,16 @@ class UberonAgent:
                     "confidence": 0.9,
                     "reasoning": f"This term contains all words from the query '{query}' in its label."
                 }
+        
+        # For compound queries (more than one word), we should be careful with simple substring matches
+        # For such queries, prefer more sophisticated ranking over simple substring matching
+        if is_compound_query:
+            # Don't return a simple substring match for compound queries
+            # This allows the ranking function to handle complex cases like "embryonic heart"
+            return None
             
-            # Check if the label is a full part of the query (e.g., query="embryonic heart", label="heart")
+        # For single-word queries, check if the label is a part of the query
+        for term in terms:
             if term.label.lower() in query.lower() and len(term.label) > 3:  # Avoid matching very short terms
                 # If we have multiple matches, prefer the most specific term
                 # A more specific term is one that matches the query exactly or has fewer additional words
