@@ -21,24 +21,47 @@ jobs:
     - name: Install Rye
       run: |
         curl -sSf https://rye-up.com/get | bash
+        echo "Installation completed, checking results..."
+        ls -la $HOME/.rye/bin || echo "Rye bin directory not found"
+        
+        # Add Rye to PATH and ensure it's executable
+        if [ -f "$HOME/.rye/bin/rye" ]; then
+          chmod +x $HOME/.rye/bin/rye
+          echo "Rye found, making executable"
+        fi
+        
+        # Source the shell profile if it exists
+        if [ -f "$HOME/.profile" ]; then
+          echo "Sourcing .profile"
+          source $HOME/.profile
+        fi
+        
+        # Add to GitHub PATH env var and current PATH
         echo "$HOME/.rye/bin" >> $GITHUB_PATH
         export PATH="$HOME/.rye/bin:$PATH"
-        rye --version
+        
+        # Diagnostic info
+        echo "Current PATH: $PATH"
+        which rye || echo "Rye not in PATH"
+        
+        # Attempt direct execution
+        $HOME/.rye/bin/rye --version || echo "Direct execution failed"
     
     - name: Install dependencies
       run: |
         export PATH="$HOME/.rye/bin:$PATH"
-        rye sync
+        echo "PATH: $PATH"
+        $HOME/.rye/bin/rye sync
     
     - name: Lint with Ruff
       run: |
         export PATH="$HOME/.rye/bin:$PATH"
-        rye run python -m ruff .
+        $HOME/.rye/bin/rye run python -m ruff .
     
     - name: Test with pytest
       run: |
         export PATH="$HOME/.rye/bin:$PATH"
-        rye run python -m pytest
+        $HOME/.rye/bin/rye run python -m pytest
       env:
         # Use dummy API key for tests (mocks will be used)
         ANTHROPIC_API_KEY: dummy_key_for_testing
@@ -47,7 +70,7 @@ jobs:
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: |
         export PATH="$HOME/.rye/bin:$PATH"
-        rye build
+        $HOME/.rye/bin/rye build
     
     - name: Upload artifacts
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
