@@ -20,48 +20,45 @@ jobs:
     
     - name: Install Rye
       run: |
-        curl -sSf https://rye-up.com/get | bash
-        echo "Installation completed, checking results..."
-        ls -la $HOME/.rye/bin || echo "Rye bin directory not found"
-        
-        # Add Rye to PATH and ensure it's executable
-        if [ -f "$HOME/.rye/bin/rye" ]; then
-          chmod +x $HOME/.rye/bin/rye
-          echo "Rye found, making executable"
-        fi
-        
-        # Source the shell profile if it exists
-        if [ -f "$HOME/.profile" ]; then
-          echo "Sourcing .profile"
-          source $HOME/.profile
-        fi
+        echo "Installing Rye using pipx..."
+        pipx install rye
+        pipx ensurepath
         
         # Add to GitHub PATH env var and current PATH
-        echo "$HOME/.rye/bin" >> $GITHUB_PATH
-        export PATH="$HOME/.rye/bin:$PATH"
+        echo "$(pipx environment -v PIPX_BIN_DIR)" >> $GITHUB_PATH
+        export PATH="$(pipx environment -v PIPX_BIN_DIR):$PATH"
         
         # Diagnostic info
         echo "Current PATH: $PATH"
         which rye || echo "Rye not in PATH"
         
-        # Attempt direct execution
-        $HOME/.rye/bin/rye --version || echo "Direct execution failed"
+        # Test rye
+        rye --version
     
-    - name: Install dependencies
+    - name: Initialize project
       run: |
-        export PATH="$HOME/.rye/bin:$PATH"
-        echo "PATH: $PATH"
-        $HOME/.rye/bin/rye sync
+        echo "Initializing Rye project..."
+        cd $GITHUB_WORKSPACE
+        ls -la
+        
+        # If pyproject.toml exists, we're in a Rye project
+        if [ -f "pyproject.toml" ]; then
+          echo "Found pyproject.toml, syncing dependencies..."
+          rye sync
+        else
+          echo "No pyproject.toml found. Current directory:"
+          ls -la
+          echo "ERROR: This doesn't appear to be a Rye project"
+          exit 1
+        fi
     
     - name: Lint with Ruff
       run: |
-        export PATH="$HOME/.rye/bin:$PATH"
-        $HOME/.rye/bin/rye run python -m ruff .
+        rye run python -m ruff .
     
     - name: Test with pytest
       run: |
-        export PATH="$HOME/.rye/bin:$PATH"
-        $HOME/.rye/bin/rye run python -m pytest
+        rye run python -m pytest
       env:
         # Use dummy API key for tests (mocks will be used)
         ANTHROPIC_API_KEY: dummy_key_for_testing
@@ -69,8 +66,7 @@ jobs:
     - name: Build package
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: |
-        export PATH="$HOME/.rye/bin:$PATH"
-        $HOME/.rye/bin/rye build
+        rye build
     
     - name: Upload artifacts
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
