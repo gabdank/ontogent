@@ -20,13 +20,23 @@ jobs:
     
     - name: Install Rye
       run: |
-        echo "Installing Rye using pipx..."
-        pipx install rye
-        pipx ensurepath
+        echo "Downloading Rye binary from GitHub..."
+        # Create directory for Rye
+        mkdir -p $HOME/.local/bin
+        
+        # Download the latest binary for Linux
+        curl -sSL https://github.com/mitsuhiko/rye/releases/latest/download/rye-x86_64-linux.gz -o rye.gz
+        
+        # Decompress
+        gzip -d rye.gz
+        
+        # Make executable and move to path
+        chmod +x rye
+        mv rye $HOME/.local/bin/
         
         # Add to GitHub PATH env var and current PATH
-        echo "$(pipx environment -v PIPX_BIN_DIR)" >> $GITHUB_PATH
-        export PATH="$(pipx environment -v PIPX_BIN_DIR):$PATH"
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        export PATH="$HOME/.local/bin:$PATH"
         
         # Diagnostic info
         echo "Current PATH: $PATH"
@@ -35,20 +45,20 @@ jobs:
         # Test rye
         rye --version
     
-    - name: Initialize project
+    - name: Setup Rye environment
       run: |
-        echo "Initializing Rye project..."
+        echo "Setting up Rye environment..."
+        rye config --set behavior.use-uv=false
         cd $GITHUB_WORKSPACE
-        ls -la
         
-        # If pyproject.toml exists, we're in a Rye project
+        # See if we need to initialize or just sync
         if [ -f "pyproject.toml" ]; then
-          echo "Found pyproject.toml, syncing dependencies..."
+          echo "Project already initialized, syncing dependencies..."
           rye sync
         else
-          echo "No pyproject.toml found. Current directory:"
+          echo "ERROR: No pyproject.toml found."
+          echo "Current directory contents:"
           ls -la
-          echo "ERROR: This doesn't appear to be a Rye project"
           exit 1
         fi
     
