@@ -1,5 +1,7 @@
 # Ontogent
 
+[![Coverage Status](https://coveralls.io/repos/github/gabdank/ontogent/badge.svg?branch=main)](https://coveralls.io/github/gabdank/ontogent?branch=main)
+
 ## Project Overview
 
 Ontogent is an AI-powered tool that helps researchers and scientists find the most suitable term in the UBERON ontology for their biological samples. The agent leverages Claude 3.5 (via Anthropic API) to process natural language descriptions and return precise UBERON terms.

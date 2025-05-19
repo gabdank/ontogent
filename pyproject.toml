@@ -29,6 +29,7 @@ dev-dependencies = [
     "black>=23.7.0",
     "ruff>=0.0.278",
     "coveralls>=4.0.0",
+    "pytest-cov>=4.1.0",
 ]
 
 [tool.pytest.ini_options]
