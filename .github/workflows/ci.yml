@@ -64,7 +64,7 @@ jobs:
     
     - name: Lint with Ruff
       run: |
-        rye run python -m ruff .
+        rye run ruff check .
     
     - name: Test with pytest
       run: |
