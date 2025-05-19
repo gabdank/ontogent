@@ -42,6 +42,8 @@ class SearchResult(BaseModel):
     best_match: Optional[UberonTerm] = Field(None, description="Best matching term")
     confidence: Optional[float] = Field(None, description="Confidence score for the best match (0-1)")
     reasoning: Optional[str] = Field(None, description="Reasoning for the best match selection")
+    debug_info: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Debug information about the search process")
+    raw_api_response: Optional[Any] = Field(None, description="Raw API response for debugging purposes")
     
     def __str__(self) -> str:
         """String representation of the search results."""

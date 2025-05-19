@@ -47,11 +47,11 @@ class LLMService:
             The model's response as a string
         """
         try:
-            logger.debug(f"Querying LLM with prompt: {prompt[:100]}...")
-            print(f"DEBUG - Sending prompt to LLM: {prompt[:100]}...")
+            logger.debug(f"Querying LLM with prompt: {prompt}...")
+            print(f"DEBUG - Sending prompt to LLM: {prompt}...")
             
             if system_prompt:
-                print(f"DEBUG - Using system prompt: {system_prompt[:100]}...")
+                print(f"DEBUG - Using system prompt: {system_prompt}...")
             
             messages: List[MessageParam] = [
                 {"role": "user", "content": prompt}
@@ -70,7 +70,7 @@ class LLMService:
             )
             
             result_text = response.content[0].text
-            print(f"DEBUG - Received LLM response ({len(result_text)} chars): {result_text[:100]}...")
+            print(f"DEBUG - Received LLM response ({len(result_text)} chars): {result_text}...")
             return result_text
         
         except Exception as e:

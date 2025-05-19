@@ -179,6 +179,21 @@ class UberonAgent:
             
             # Check if the label is a full part of the query (e.g., query="embryonic heart", label="heart")
             if term.label.lower() in query.lower() and len(term.label) > 3:  # Avoid matching very short terms
+                # If we have multiple matches, prefer the most specific term
+                # A more specific term is one that matches the query exactly or has fewer additional words
+                other_matches = [t for t in terms if t.label.lower() in query.lower() and len(t.label) > 3]
+                if other_matches:
+                    # Sort by specificity (fewer words = more specific)
+                    specific_matches = sorted(other_matches, key=lambda t: len(t.label.split()))
+                    most_specific = specific_matches[0]
+                    
+                    logger.info(f"Found most specific term: {most_specific.id} - {most_specific.label}")
+                    return {
+                        "term": most_specific,
+                        "confidence": 0.85,
+                        "reasoning": f"The term '{most_specific.label}' is the most specific match for the query '{query}'."
+                    }
+                    
                 logger.info(f"Found term label contained in query: {term.id} - {term.label}")
                 return {
                     "term": term,

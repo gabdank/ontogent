@@ -135,10 +135,14 @@ class UberonService:
                 "ontology": "uberon",
                 "rows": query.max_results,
                 "queryFields": "label,synonym,description",
-                "exact": "false"
+                "exact": "false",
+                "fieldList": "id,obo_id,short_form,label,description,ontology_name,ontology_prefix,curie",
+                "local": "true",  # Ensure only terms from the specified ontology are returned
+                "groupField": "ontology_name"  # Group by ontology to help with filtering
             }
             
             logger.debug(f"Sending EBI OLS4 API request to {self.search_url} with params: {params}")
+            print(f"DEBUG - API search parameters: {params}")
             
             try:
                 response = self.session.get(
@@ -153,23 +157,35 @@ class UberonService:
                 logger.debug(f"Received EBI OLS4 API response with status code {response.status_code}")
                 logger.debug(f"Response structure: {list(data.keys())}")
                 
+                # Create a basic result with the raw API response for debugging
+                result = SearchResult(
+                    query=query.query,
+                    raw_api_response=data
+                )
+                
                 if "response" in data:
-                    logger.debug(f"Found {data['response'].get('numFound', 0)} results in response")
+                    total_results_found = data['response'].get('numFound', 0)
+                    logger.debug(f"Found {total_results_found} results in API response")
+                    
                     if "docs" in data["response"]:
-                        logger.debug(f"First 3 docs: {data['response']['docs'][:3]}")
+                        if len(data["response"]["docs"]) > 0:
+                            logger.debug(f"First 3 docs: {data['response']['docs'][:3]}")
                 
                 # Convert API response to UberonTerm objects
                 terms = self._parse_search_results(data)
-                logger.debug(f"Parsed {len(terms)} terms from the API response")
+                logger.debug(f"Parsed {len(terms)} UBERON terms after filtering")
                 
-                result = SearchResult(
-                    query=query.query,
-                    matches=terms,
-                    total_matches=len(terms) if terms else 0,
-                    best_match=terms[0] if terms else None,
-                    confidence=0.9 if terms else None,
-                    reasoning="Based on EBI OLS4 API search results"
-                )
+                # Update result with the parsed terms
+                result.matches = terms
+                result.total_matches = len(terms)
+                
+                if terms:
+                    result.best_match = terms[0]
+                    result.confidence = 0.9
+                    result.reasoning = "Based on EBI OLS4 API search results"
+                else:
+                    logger.warning(f"No UBERON terms found for query: {query.query}")
+                    result.reasoning = "No UBERON terms matched the query"
                 
                 return result
                 
@@ -180,7 +196,7 @@ class UberonService:
         except Exception as e:
             logger.error(f"Error searching UBERON terms: {e}")
             # Return an empty result in case of error
-            return SearchResult(query=query.query)
+            return SearchResult(query=query.query, reasoning=f"Error: {str(e)}")
     
     @log_with_context
     def get_term_by_id(self, term_id: str) -> Optional[UberonTerm]:
@@ -279,6 +295,11 @@ class UberonService:
                         logger.warning(f"Could not extract term ID from doc: {doc}")
                         continue
                     
+                    # Filter out non-UBERON terms
+                    if not term_id.startswith("UBERON:"):
+                        logger.debug(f"Skipping non-UBERON term: {term_id}")
+                        continue
+                    
                     # Extract the label
                     label = doc.get("label") or doc.get("title") or doc.get("name")
                     if not label:
@@ -363,6 +384,11 @@ class UberonService:
             
             if not term_id:
                 logger.warning("Could not extract term ID from response data")
+                return None
+                
+            # Filter out non-UBERON terms
+            if not term_id.startswith("UBERON:"):
+                logger.debug(f"Skipping non-UBERON term: {term_id}")
                 return None
             
             # Extract the label
