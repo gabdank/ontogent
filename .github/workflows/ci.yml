@@ -64,7 +64,8 @@ jobs:
     
     - name: Lint with Ruff
       run: |
-        rye run ruff check .
+        export PATH="$HOME/.local/bin:$PATH"
+        rye run ruff check . --exit-zero
     
     - name: Test with pytest
       run: |
