@@ -67,13 +67,19 @@ jobs:
         export PATH="$HOME/.local/bin:$PATH"
         rye run ruff check . --exit-zero
     
-    - name: Test with pytest
+    - name: Test with pytest and coverage
       run: |
         export PATH="$HOME/.local/bin:$PATH"
-        rye run python -m pytest || echo "Tests failed but continuing workflow"
+        rye run python -m pytest --cov=src --cov-report=xml || echo "Tests failed but continuing workflow"
       env:
         # Use dummy API key for tests (mocks will be used)
         ANTHROPIC_API_KEY: dummy_key_for_testing
+    
+    - name: Upload coverage to Coveralls
+      uses: coverallsapp/github-action@v2
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        path-to-lcov: ./coverage.xml
     
     - name: Build package
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
