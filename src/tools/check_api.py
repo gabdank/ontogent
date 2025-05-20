@@ -41,7 +41,7 @@ def main():
     logger = setup_logging()
     
     print("Checking EBI OLS4 API health...")
-    health_info = UberonService.check_api_health(timeout=args.timeout)
+    health_info = check_ebi_ols4_api_health(timeout=args.timeout)
     
     if args.format == "json":
         # Output JSON format
