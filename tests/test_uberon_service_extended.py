@@ -304,45 +304,6 @@ class TestUberonServiceExtended(unittest.TestCase):
         # Even if the URL format is not converted, confirm we have the parent IDs in some form
         self.assertEqual(len(term.parent_ids), 2)
     
-    def test_check_api_health(self):
-        """Test the check_api_health class method."""
-        # Mock the check_ebi_ols4_api_health function
-        with patch('src.tools.check_api.check_ebi_ols4_api_health') as mock_check:
-            # Set up mock response
-            mock_check.return_value = {
-                "api_healthy": True,
-                "search_status_code": 200,
-                "search_url_accessible": True
-            }
-            
-            # Call the method
-            health_info = UberonService.check_api_health()
-            
-            # Verify the result
-            self.assertIsInstance(health_info, dict)
-            self.assertTrue(health_info["api_healthy"])
-            self.assertEqual(health_info["search_status_code"], 200)
-            self.assertTrue(health_info["search_url_accessible"])
-    
-    def test_check_api_health_failure(self):
-        """Test the check_api_health method when API is unavailable."""
-        # Mock the check_ebi_ols4_api_health function
-        with patch('src.tools.check_api.check_ebi_ols4_api_health') as mock_check:
-            # Set up mock response for failure
-            mock_check.return_value = {
-                "api_healthy": False,
-                "error": "Connection error",
-                "search_url_accessible": False
-            }
-            
-            # Call the method
-            health_info = UberonService.check_api_health()
-            
-            # Verify the result
-            self.assertFalse(health_info["api_healthy"])
-            self.assertIsNotNone(health_info["error"])
-            self.assertFalse(health_info["search_url_accessible"])
-    
     def test_test_api_connection_success(self):
         """Test the test_api_connection method when successful."""
         # Remove the patch to test the actual method

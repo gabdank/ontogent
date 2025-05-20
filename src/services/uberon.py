@@ -477,18 +477,5 @@ class UberonService:
             logger.debug(f"Term data that could not be parsed: {data}")
             return None
 
-    @classmethod
-    def check_api_health(cls, timeout: int = 10) -> Dict[str, Any]:
-        """
-        Class method to check the health of the EBI OLS4 API.
-        
-        This method can be used independently to diagnose API connectivity issues.
-        
-        Args:
-            timeout: Request timeout in seconds
-            
-        Returns:
-            Dictionary with API health information
-        """
-        from src.tools.check_api import check_ebi_ols4_api_health
-        return check_ebi_ols4_api_health(timeout=timeout) 
+    # Removed duplicated check_api_health method.
+    # Its functionality is now handled by src/tools/check_api.py 
